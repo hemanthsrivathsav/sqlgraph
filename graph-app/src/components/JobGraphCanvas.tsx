@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState, useEffect } from "react";
-import { TransformWrapper, TransformComponent, ReactZoomPanPinchRef } from "react-zoom-pan-pinch";
+import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 
 const NODE_W = 220;
 const NODE_H = 96;
@@ -163,7 +163,7 @@ function GridBackground({ width, height }: { width: number; height: number }) {
   );
 }
 
-function Toolbar({ apiRef, onFit, onReset }: { apiRef: React.MutableRefObject<ReactZoomPanPinchRef | null>; onFit?: () => void; onReset?: () => void }) {
+function Toolbar({ apiRef, onFit, onReset }: { apiRef: React.MutableRefObject<any>; onFit?: () => void; onReset?: () => void }) {
   return (
     <div className="absolute z-20 top-3 left-3 flex items-center gap-2 bg-white/90 backdrop-blur rounded-xl shadow p-2 border border-zinc-200">
       <button
@@ -236,7 +236,7 @@ export default function JobGraphCanvas() {
 
   const nodeById = useMemo(() => Object.fromEntries(nodes.map(n => [n.id, n])), [nodes]);
 
-  const apiRef = useRef<ReactZoomPanPinchRef | null>(null);
+  const apiRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerH, setContainerH] = useState(720);
 
