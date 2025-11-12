@@ -1,0 +1,18 @@
+{
+  "JobA/orders_extract.sql": { "depends_on": [], "impact": 15 },
+  "JobA/customers_extract.sql": { "depends_on": [], "impact": 35 },
+  "JobB/products_master.sql": { "depends_on": [], "impact": 50 },
+  "JobC/inventory_snapshot.sql": { "depends_on": ["JobB/products_master.sql"], "impact": 42 },
+  "JobA/orders_agg.sql": {
+    "depends_on": ["JobA/orders_extract.sql", "JobA/customers_extract.sql", "JobB/products_master.sql"],
+    "impact": 70
+  },
+  "JobC/inventory_summary.sql": {
+    "depends_on": ["JobC/inventory_snapshot.sql", "JobA/orders_agg.sql"],
+    "impact": 90
+  },
+  "JobD/finance_report.sql": {
+    "depends_on": ["JobA/orders_agg.sql", "JobC/inventory_summary.sql"],
+    "impact": 95
+  }
+}
