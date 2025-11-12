@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useState, useEffect } from "react";
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
+import Starter from "./Starter";
 
 const NODE_W = 220;
 const NODE_H = 96;
@@ -18,6 +19,15 @@ export type JobEdge = {
   to: string;
 };
 
+// Spec coming from the (Python) processor
+export type JobSpec = {
+  [jobName: string]: {
+    depends_on?: string[];
+    impact?: number;
+  } | null;
+};
+
+// ---------- Geometry / helpers ----------
 function pathBetween(a: { x: number; y: number }, b: { x: number; y: number }) {
   const dx = (b.x - a.x) * 0.5;
   const dy = (b.y - a.y) * 0.0;
@@ -26,56 +36,6 @@ function pathBetween(a: { x: number; y: number }, b: { x: number; y: number }) {
   const c2x = b.x - dx;
   const c2y = b.y - dy;
   return `M ${a.x},${a.y} C ${c1x},${c1y} ${c2x},${c2y} ${b.x},${b.y}`;
-}
-
-type Side = "left" | "right" | "top" | "bottom";
-
-function anchorFromSide(node: JobNode, side: Side) {
-  const rx = NODE_W / 2;
-  const ry = NODE_H / 2;
-  const eps = 0.5;
-  switch (side) {
-    case "left":
-      return { x: node.x - rx - eps, y: node.y };
-    case "right":
-      return { x: node.x + rx + eps, y: node.y };
-    case "top":
-      return { x: node.x, y: node.y - ry - eps };
-    case "bottom":
-      return { x: node.x, y: node.y + ry + eps };
-  }
-}
-
-function choosePortSides(a: JobNode, b: JobNode): { startSide: Side; endSide: Side } {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  if (Math.abs(dx) >= Math.abs(dy)) {
-    return { startSide: dx >= 0 ? "right" : "left", endSide: dx >= 0 ? "left" : "right" };
-  }
-  return { startSide: dy >= 0 ? "bottom" : "top", endSide: dy >= 0 ? "top" : "bottom" };
-}
-
-function orthogonalRoute(start: { x: number; y: number }, end: { x: number; y: number }): { x: number; y: number }[] {
-  const gap = 24;
-  const p: { x: number; y: number }[] = [];
-  p.push(start);
-  if (Math.abs(start.x - end.x) > Math.abs(start.y - end.y)) {
-    const midX = (start.x + end.x) / 2;
-    p.push({ x: midX, y: start.y });
-    p.push({ x: midX, y: end.y });
-  } else {
-    const midY = (start.y + end.y) / 2;
-    p.push({ x: start.x, y: midY });
-    p.push({ x: end.x, y: midY });
-  }
-  p.push(end);
-  return p;
-}
-
-function polyPath(points: { x: number; y: number }[]) {
-  if (points.length === 0) return "";
-  const [h, ...rest] = points;
-  return `M ${h.x},${h.y} ` + rest.map(pt => `L ${pt.x},${pt.y}`).join(" ");
 }
 
 function anchorFor(from: JobNode, to: JobNode) {
@@ -121,6 +81,7 @@ function getCenter(bounds: { minX: number; minY: number; maxX: number; maxY: num
   return { cx: (bounds.minX + bounds.maxX) / 2, cy: (bounds.minY + bounds.maxY) / 2 };
 }
 
+// ---------- Node Card ----------
 function NodeCard({ node, onPointerDown }: { node: JobNode; onPointerDown?: (e: React.PointerEvent) => void }) {
   const { stroke, fill } = impactColors(node.impact);
   return (
@@ -143,6 +104,7 @@ function NodeCard({ node, onPointerDown }: { node: JobNode; onPointerDown?: (e: 
   );
 }
 
+// ---------- Background Grid ----------
 function GridBackground({ width, height }: { width: number; height: number }) {
   return (
     <div
@@ -163,37 +125,35 @@ function GridBackground({ width, height }: { width: number; height: number }) {
   );
 }
 
-function Toolbar({ apiRef, onFit, onReset }: { apiRef: React.MutableRefObject<any>; onFit?: () => void; onReset?: () => void }) {
+// ---------- Toolbar ----------
+function Toolbar({ apiRef, onFit, onReset, onLoadJson }: { apiRef: React.MutableRefObject<any>; onFit?: () => void; onReset?: () => void; onLoadJson?: (obj: JobSpec) => void }) {
+  const fileRef = React.useRef<HTMLInputElement | null>(null);
+  const onPick = () => fileRef.current?.click();
+  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const text = await f.text();
+    try {
+      const obj = JSON.parse(text) as JobSpec;
+      onLoadJson?.(obj);
+    } catch (err) {
+      console.error("Invalid JSON", err);
+      alert("Invalid JSON format. Expected { jobName: { depends_on: string[], impact?: number }, ... }");
+    }
+  };
   return (
     <div className="absolute z-20 top-3 left-3 flex items-center gap-2 bg-white/90 backdrop-blur rounded-xl shadow p-2 border border-zinc-200">
-      <button
-        className="px-3 py-1 rounded-lg border border-zinc-300 hover:bg-zinc-100 text-sm"
-        onClick={() => apiRef.current?.zoomOut()}
-      >
-        −
-      </button>
-      <button
-        className="px-3 py-1 rounded-lg border border-zinc-300 hover:bg-zinc-100 text-sm"
-        onClick={() => apiRef.current?.zoomIn()}
-      >
-        +
-      </button>
-      <button
-        className="px-3 py-1 rounded-lg border border-zinc-300 hover:bg-zinc-100 text-sm"
-        onClick={() => onReset?.()}
-      >
-        Reset
-      </button>
-      <button
-        className="px-3 py-1 rounded-lg border border-zinc-300 hover:bg-zinc-100 text-sm"
-        onClick={() => onFit?.()}
-      >
-        Fit
-      </button>
+      <input ref={fileRef} type="file" accept="application/json" className="hidden" onChange={onFile} />
+      <button className="px-3 py-1 rounded-lg border border-zinc-300 hover:bg-zinc-100 text-sm" onClick={onPick}>Load JSON</button>
+      <button className="px-3 py-1 rounded-lg border border-zinc-300 hover:bg-zinc-100 text-sm" onClick={() => apiRef.current?.zoomOut()}>−</button>
+      <button className="px-3 py-1 rounded-lg border border-zinc-300 hover:bg-zinc-100 text-sm" onClick={() => apiRef.current?.zoomIn()}>+</button>
+      <button className="px-3 py-1 rounded-lg border border-zinc-300 hover:bg-zinc-100 text-sm" onClick={() => onReset?.()}>Reset</button>
+      <button className="px-3 py-1 rounded-lg border border-zinc-300 hover:bg-zinc-100 text-sm" onClick={() => onFit?.()}>Fit</button>
     </div>
   );
 }
 
+// ---------- MiniMap ----------
 function MiniMap({ width, height, nodes }: { width: number; height: number; nodes: JobNode[] }) {
   const W = 200, H = 140;
   const minX = Math.min(...nodes.map(n => n.x));
@@ -217,22 +177,80 @@ function MiniMap({ width, height, nodes }: { width: number; height: number; node
   );
 }
 
+// ---------- Build graph from spec ----------
+function topoLevels(spec: JobSpec): Map<string, number> {
+  const indeg = new Map<string, number>();
+  const adj = new Map<string, string[]>();
+  Object.keys(spec).forEach(k => { indeg.set(k, 0); adj.set(k, []); });
+  for (const [job, cfg] of Object.entries(spec)) {
+    const deps = cfg?.depends_on || [];
+    for (const d of deps) {
+      if (!indeg.has(d)) { indeg.set(d, 0); adj.set(d, []); }
+      adj.get(d)!.push(job);
+      indeg.set(job, (indeg.get(job) || 0) + 1);
+    }
+  }
+  const q: string[] = [];
+  indeg.forEach((v, k) => { if (v === 0) q.push(k); });
+  const level = new Map<string, number>();
+  q.forEach(k => level.set(k, 0));
+  while (q.length) {
+    const u = q.shift()!;
+    for (const v of adj.get(u) || []) {
+      const lu = level.get(u) || 0;
+      level.set(v, Math.max(level.get(v) || 0, lu + 1));
+      indeg.set(v, (indeg.get(v) || 0) - 1);
+      if ((indeg.get(v) || 0) === 0) q.push(v);
+    }
+  }
+  Object.keys(spec).forEach(k => { if (!level.has(k)) level.set(k, 0); });
+  return level;
+}
+
+function buildGraphFromSpec(spec: JobSpec) {
+  const levels = topoLevels(spec);
+  const byLevel = new Map<number, string[]>();
+  levels.forEach((lv, job) => {
+    const arr = byLevel.get(lv) || [];
+    arr.push(job);
+    byLevel.set(lv, arr);
+  });
+  const LAYER_GAP_X = 360;
+  const LAYER_GAP_Y = 180;
+  const nodesOut: JobNode[] = [];
+  const edgesOut: JobEdge[] = [];
+  const startX = 400;
+  const startY = 300;
+  for (const [lv, jobs] of Array.from(byLevel.entries()).sort((a,b)=>a[0]-b[0])) {
+    jobs.forEach((job, idx) => {
+      const x = startX + lv * LAYER_GAP_X;
+      const y = startY + idx * LAYER_GAP_Y;
+      nodesOut.push({ id: job, label: job, x, y, impact: spec[job]?.impact ?? 0 });
+    });
+  }
+  const nodeIds = new Set(nodesOut.map(n => n.id));
+  for (const [job, cfg] of Object.entries(spec)) {
+    const deps = cfg?.depends_on || [];
+    for (const d of deps) {
+      if (!nodeIds.has(d)) {
+        nodesOut.push({ id: d, label: d, x: startX, y: startY, impact: 0 });
+        nodeIds.add(d);
+      }
+      edgesOut.push({ id: `${d}->${job}`, from: d, to: job });
+    }
+  }
+  return { nodesOut, edgesOut };
+}
+
+
+// ---------- Main ----------
 export default function JobGraphCanvas() {
   const CANVAS_W = 4000;
   const CANVAS_H = 3000;
 
-  const [nodes] = useState<JobNode[]>([
-    { id: "n1", label: "JobA/orders.sql", x: 800, y: 600, impact: 12 },
-    { id: "n2", label: "JobA/customers.sql", x: 1200, y: 600, impact: 48 },
-    { id: "n3", label: "JobA/orders_agg.sql", x: 1000, y: 900, impact: 83 },
-    { id: "n4", label: "JobB/products.sql", x: 1600, y: 720, impact: 67 },
-  ]);
-
-  const [edges] = useState<JobEdge[]>([
-    { id: "e1", from: "n1", to: "n3" },
-    { id: "e2", from: "n2", to: "n3" },
-    { id: "e3", from: "n4", to: "n3" },
-  ]);
+  const [nodes, setNodes] = useState<JobNode[]>([]);
+  const [edges, setEdges] = useState<JobEdge[]>([]);
+  const [mode, setMode] = useState<"start"|"graph">("start");
 
   const nodeById = useMemo(() => Object.fromEntries(nodes.map(n => [n.id, n])), [nodes]);
 
@@ -270,17 +288,29 @@ export default function JobGraphCanvas() {
     const onResize = () => {
       const rect = containerRef.current?.getBoundingClientRect();
       setContainerH(rect ? rect.height : window.innerHeight - 120);
-      fitToCanvas();
+      if (mode === "graph") fitToCanvas();
     };
     onResize();
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, []);
+  }, [mode]);
+
+  function handleSpec(spec: JobSpec) {
+    const { nodesOut, edgesOut } = buildGraphFromSpec(spec);
+    setNodes(nodesOut);
+    setEdges(edgesOut);
+    setMode("graph");
+    setTimeout(()=>centerOnNodes(1), 0);
+  }
+
+  if (mode === "start") {
+    return <Starter onSpecReady={handleSpec} />;
+  }
 
   return (
     <div ref={containerRef} className="w-full h-[calc(100vh-0px)] relative overflow-hidden">
       <TransformWrapper
-        ref={apiRef as any}
+        ref={apiRef}
         minScale={0.2}
         maxScale={2}
         initialScale={0.8}
@@ -291,7 +321,12 @@ export default function JobGraphCanvas() {
         pinch={{ step: 0.07 }}
         limitToBounds={false}
       >
-        <Toolbar apiRef={apiRef} onFit={fitToCanvas} onReset={() => centerOnNodes(1)} />
+        <Toolbar
+          apiRef={apiRef}
+          onFit={fitToCanvas}
+          onReset={() => centerOnNodes(1)}
+          onLoadJson={(obj)=>{ const { nodesOut, edgesOut } = buildGraphFromSpec(obj); setNodes(nodesOut); setEdges(edgesOut); setTimeout(()=>centerOnNodes(1), 0); }}
+        />
         <TransformComponent>
           <div className="relative" style={{ width: CANVAS_W, height: CANVAS_H }}>
             <GridBackground width={CANVAS_W} height={CANVAS_H} />
