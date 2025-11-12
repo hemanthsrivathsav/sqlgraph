@@ -1,11 +1,7 @@
 import React, { useState, useRef } from "react";
 
-export type JobSpec = {
-  [jobName: string]: {
-    depends_on?: string[];
-    impact?: number;
-  } | null;
-};
+import type { JobSpec } from "./types";
+
 
 function Starter({ onSpecReady }: { onSpecReady: (spec: JobSpec) => void }) {
   const [dragOver, setDragOver] = useState(false);
@@ -16,23 +12,32 @@ function Starter({ onSpecReady }: { onSpecReady: (spec: JobSpec) => void }) {
   const handlePick = () => fileRef.current?.click();
 
   const simulatePythonProcess = async (file: File) => {
-    setBusy(true);
-    setProgress(0);
-    // Simulate work + progress. Replace with real backend call later.
-    for (let i = 0; i <= 20; i++) {
-      await new Promise(r => setTimeout(r, 80));
-      setProgress(Math.round((i / 20) * 100));
-    }
-    // Demo output spec; in reality, parse/lineage the SQL inside the ZIP
-    const spec: JobSpec = {
-      "JobA/orders.sql": { depends_on: [], impact: 12 },
-      "JobA/customers.sql": { depends_on: [], impact: 48 },
-      "JobB/products.sql": { depends_on: [], impact: 67 },
-      "JobA/orders_agg.sql": { depends_on: ["JobA/orders.sql", "JobA/customers.sql", "JobB/products.sql"], impact: 83 }
-    };
-    setBusy(false);
+  setBusy(true);
+  setProgress(0);
+
+  const form = new FormData();
+  form.append("file", file);
+
+  // simple progress feel while the network call happens
+  const tick = setInterval(() => setProgress(p => Math.min(95, p + 2)), 100);
+
+  try {
+    const res = await fetch("http://localhost:8000/process-zip", {
+      method: "POST",
+      body: form,
+    });
+    const spec: JobSpec = await res.json();
+    setProgress(100);
     onSpecReady(spec);
-  };
+  } catch (e) {
+    alert("Processing failed. Check backend logs.");
+    console.error(e);
+  } finally {
+    clearInterval(tick);
+    setBusy(false);
+  }
+};
+
 
   const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();

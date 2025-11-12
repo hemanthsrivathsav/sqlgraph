@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useState, useEffect } from "react";
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 import Starter from "./Starter";
+import type { JobSpec } from "./types";
 
 const NODE_W = 220;
 const NODE_H = 96;
@@ -19,13 +20,7 @@ export type JobEdge = {
   to: string;
 };
 
-// Spec coming from the (Python) processor
-export type JobSpec = {
-  [jobName: string]: {
-    depends_on?: string[];
-    impact?: number;
-  } | null;
-};
+
 
 // ---------- Geometry / helpers ----------
 function pathBetween(a: { x: number; y: number }, b: { x: number; y: number }) {
