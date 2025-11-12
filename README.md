@@ -6,9 +6,14 @@ npm install tailwindcss @tailwindcss/vite
 
 # add in vite.config.ts
 import tailwindcss from '@tailwindcss/vite'
-# under plugins in vite.config.ts
+# add in plugins list in vite.config.ts
 tailwindcss(),
 
+# add this in index.css
+@import "tailwindcss";
+
+# add this in html file 
+<link href="/src/style.css" rel="stylesheet">
 
 # install this before running 
 npm install react-zoom-pan-pinch
@@ -20,5 +25,6 @@ npm run dev
 
 # backend running 
 pip install fastapi uvicorn
-uvicorn main:app --reload --port 8000
+cd <backend folder>
+python -m uvicorn backend.main:app --reload --port 8000
 

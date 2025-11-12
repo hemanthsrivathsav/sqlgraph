@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState, useEffect } from "react";
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 import Starter from "./Starter";
-import type { JobSpec } from "./types";
+import type { JobSpec } from "../types";
 
 const NODE_W = 220;
 const NODE_H = 96;

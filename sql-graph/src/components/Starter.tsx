@@ -1,6 +1,6 @@
 import React, { useState, useRef } from "react";
 
-import type { JobSpec } from "./types";
+import type { JobSpec } from "../types";
 
 
 function Starter({ onSpecReady }: { onSpecReady: (spec: JobSpec) => void }) {
