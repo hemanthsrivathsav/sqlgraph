@@ -1,146 +1,159 @@
-import React, { useRef, useState } from "react";
+import React, { useState } from "react";
+import { Upload, FileArchive } from "lucide-react";
+import { toast } from "sonner";
+import { Toaster } from "sonner";
+import "./Starter.css";
 
-// Starter expects: onSpecReady(workflowJson)
-export default function Starter({ onSpecReady }) {
-  const [dragOver, setDragOver] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const fileRef = useRef(null);
+export default function RuleMine() {
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
 
-  // 👉 change this to your FastAPI URL if different
-  const API_URL = "http://127.0.0.1:8000/process-zip";
-
-  const handlePick = () => {
-    if (fileRef.current) fileRef.current.click();
-  };
-
-  // small fake-progress helper to animate bar while fetch runs
-  function startFakeProgress() {
-    setProgress(0);
-    let current = 0;
-    const id = setInterval(() => {
-      current += 5;
-      // stop around 85%, the rest will be set to 100 when response arrives
-      if (current >= 85) {
-        clearInterval(id);
+  const handleFileChange = (event) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      if (file.name.endsWith(".zip")) {
+        setSelectedFile(file);
+        toast.success(`File "${file.name}" selected successfully`);
       } else {
-        setProgress(current);
+        toast.error("Please select a ZIP file");
       }
-    }, 120);
-    return () => clearInterval(id);
-  }
-
-  async function uploadZipToBackend(file) {
-    try {
-      setBusy(true);
-      const stopFake = startFakeProgress();
-
-      const formData = new FormData();
-      // backend FastAPI will read this as `file: UploadFile`
-      formData.append("file", file);
-
-      const res = await fetch(API_URL, {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!res.ok) {
-        stopFake();
-        setProgress(0);
-        throw new Error(`Backend error: ${res.status} ${res.statusText}`);
-      }
-
-      const json = await res.json();
-      stopFake();
-      setProgress(100);
-
-      // ✅ hand the workflow JSON to JobGraphCanvas
-      onSpecReady(json);
-    } catch (err) {
-      console.error("Upload / processing failed", err);
-      alert("Processing failed. Check backend logs.");
-      setBusy(false);
-      setProgress(0);
     }
-  }
+  };
 
-  function handleFile(file) {
-    if (!file) return;
-    if (!file.name.toLowerCase().endsWith(".zip")) {
-      alert("Please choose a .zip file containing your SQL folders");
-      return;
+  const handleDragOver = (event) => {
+    event.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
+
+  const handleDrop = (event) => {
+    event.preventDefault();
+    setIsDragging(false);
+
+    const file = event.dataTransfer.files[0];
+    if (file && file.name.endsWith(".zip")) {
+      setSelectedFile(file);
+      toast.success(`File "${file.name}" selected successfully`);
+    } else {
+      toast.error("Please drop a ZIP file");
     }
-    uploadZipToBackend(file);
-  }
-
-  const onDrop = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragOver(false);
-    const f = e.dataTransfer.files?.[0];
-    handleFile(f);
   };
 
-  const onDragOver = (e) => {
-    e.preventDefault();
-    setDragOver(true);
+  const handleUpload = () => {
+    if (selectedFile) {
+      toast.success(`Uploading ${selectedFile.name}...`);
+      // Upload logic would go here
+    }
   };
 
-  const onDragLeave = (e) => {
-    e.preventDefault();
-    setDragOver(false);
-  };
-
-  const onFileChange = (e) => {
-    const f = e.target.files?.[0];
-    handleFile(f);
+  const handleRemove = () => {
+    setSelectedFile(null);
   };
 
   return (
-    <div className="app-fullscreen">
-      <input
-        ref={fileRef}
-        type="file"
-        accept=".zip"
-        className="hidden-input"
-        onChange={onFileChange}
-      />
+    <div className="rulemine-page">
+      {/* animated background */}
+      <div className="rulemine-bg">
+        <div className="orb orb-1" />
+        <div className="orb orb-2" />
+        <div className="orb orb-3" />
 
-      <div
-        className={
-          "starter-card" +
-          (dragOver ? " starter-card--dragover" : "")
-        }
-        onDrop={onDrop}
-        onDragOver={onDragOver}
-        onDragLeave={onDragLeave}
-      >
-        <h1 className="starter-title">Upload your SQL ZIP</h1>
-        <p className="starter-subtitle">
-          Drop a .zip with folders of .sql files. The backend will extract
-          dependencies and build the workflow + job graph JSON.
-        </p>
+        <div className="shape shape-1" />
+        <div className="shape shape-2" />
+        <div className="shape shape-3" />
 
-        <button className="btn" onClick={handlePick} disabled={busy}>
-          {busy ? "Processing…" : "Choose .zip"}
-        </button>
+        <div className="rulemine-grid" />
+      </div>
 
-        {busy && (
-          <div className="starter-progress">
-            <div className="starter-progress-label">
-              Processing on backend…
-            </div>
-            <div className="progress-track">
-              <div
-                className="progress-fill"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-            <div className="starter-progress-percent">
-              {progress}%
+      <div className="rulemine-content">
+        <header className="rulemine-header">
+          <h1>Rule Mine</h1>
+          <p>Upload zip file containing yml jobs</p>
+        </header>
+
+        <section className="upload-card">
+          <div
+            className={`drop-zone ${isDragging ? "drag-active" : ""}`}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
+            <div className="drop-inner">
+              <div className={`icon-circle ${isDragging ? "icon-active" : ""}`}>
+                <FileArchive
+                  className={`icon-main ${
+                    isDragging ? "icon-main-active" : ""
+                  }`}
+                />
+              </div>
+
+              <h3 className="drop-title">
+                {selectedFile ? selectedFile.name : "Upload ZIP File"}
+              </h3>
+              <p className="drop-subtitle">
+                Drag and drop your ZIP file here, or click the button below to
+                browse
+              </p>
+
+              <div className="btn-row">
+                <label htmlFor="file-upload" className="btn btn-primary">
+                  <Upload className="btn-icon" />
+                  <span>Choose File</span>
+                  <input
+                    id="file-upload"
+                    type="file"
+                    accept=".zip"
+                    onChange={handleFileChange}
+                    className="file-input-hidden"
+                  />
+                </label>
+
+                {selectedFile && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={handleUpload}
+                  >
+                    Upload File
+                  </button>
+                )}
+              </div>
+
+              {selectedFile && (
+                <div className="file-info">
+                  <div className="file-info-left">
+                    <FileArchive className="file-info-icon" />
+                    <div className="file-info-text">
+                      <p className="file-name">{selectedFile.name}</p>
+                      <p className="file-size">
+                        {(selectedFile.size / 1024).toFixed(2)} KB
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={handleRemove}
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
             </div>
           </div>
-        )}
+        </section>
+
+        <section className="requirements-card">
+          <h4>Requirements</h4>
+          <ul>
+            <li>• File must be in ZIP format</li>
+            <li>• ZIP should contain YML job files</li>
+            <li>• Maximum file size: 50MB</li>
+          </ul>
+        </section>
       </div>
     </div>
   );

@@ -1,18 +1,104 @@
 {
-  "JobA/orders_extract.sql": { "depends_on": [], "impact": 15 },
-  "JobA/customers_extract.sql": { "depends_on": [], "impact": 35 },
-  "JobB/products_master.sql": { "depends_on": [], "impact": 50 },
-  "JobC/inventory_snapshot.sql": { "depends_on": ["JobB/products_master.sql"], "impact": 42 },
-  "JobA/orders_agg.sql": {
-    "depends_on": ["JobA/orders_extract.sql", "JobA/customers_extract.sql", "JobB/products_master.sql"],
-    "impact": 70
-  },
-  "JobC/inventory_summary.sql": {
-    "depends_on": ["JobC/inventory_snapshot.sql", "JobA/orders_agg.sql"],
-    "impact": 90
-  },
-  "JobD/finance_report.sql": {
-    "depends_on": ["JobA/orders_agg.sql", "JobC/inventory_summary.sql"],
-    "impact": 95
-  }
+  "workflow_name": "CARI_CBB_BB_INFO1_CHARGEOFF_TXN_MONTHLY",
+  "jobs": [
+    {
+      "job_name": "Job1",
+      "job_type": "Ingest",
+      "dag_name": "CBB_TR_D_BB_CROFF_M",
+      "schedule_bd_day": "BD4",
+      "schedule_hour": "20:00",
+      "rank": 1,
+      "dependencies": [],
+      "tables": ["accounts", "branches", "customers,transactions"],
+      "columns": {
+        "accounts":[
+          "account_id",
+          "account_type",
+          "open_date"
+        ],
+        "branches":[
+          "branch_id",
+          "branch_name",
+          "branch_city"
+        ],
+        "customers":[
+          "customer_id",
+          "customer_name",
+          "customer_address"
+        ],
+        "transactions":[
+          "transaction_id",
+          "account_id",
+          "transaction_amount",
+          "transaction_date"
+        ]
+      },
+      "inner_join":[
+        {
+          "tablesUsed": ["accounts", "customers"],
+          "attr_list": ["customer_id"]
+        }
+      ],
+      "left_join":[
+        {
+          "tablesUsed": ["accounts", "transactions"],
+          "attr_list": ["account_id"]
+        },
+        {
+          "tablesUsed": ["branches", "transactions"],
+          "attr_list": ["branch_id"]
+        }
+
+      ],
+      "right_join":[
+        {
+          "tablesUsed": ["customers", "branches"],
+          "attr_list": ["branch_id"]
+        }
+      ]
+    },
+    {
+      "job_name": "Job2",
+      "job_type": "Ingest",
+      "dag_name": "CBB_TR_D_BB_CROFF_M",
+      "schedule_bd_day": "BD4",
+      "schedule_hour": "20:00",
+      "rank": 2,
+      "dependencies": ["Job1"],
+      "tables": ["accounts", "branches"],
+      "columns": {
+        "accounts":[
+          "account_id",
+          "account_type",
+          "open_date"
+        ],
+        "branches":[
+          "branch_id",
+          "branch_name",
+          "branch_city"
+        ],
+        "Job1":[
+         "transaction_id",
+          "account_id",
+          "transaction_amount",
+          "transaction_date"
+        ]
+      },
+      "inner_join":[],
+      "left_join":[
+        {
+          "tablesUsed": ["Job1", "accounts"],
+          "attr_list": ["account_id"]
+        },
+        {
+          "tablesUsed": ["Job1", "branches"],
+          "attr_list": ["branch_id"]
+        }
+
+      ],
+      "right_join":null
+    }
+
+
+  ]
 }

@@ -266,101 +266,164 @@ function buildGraphFromWorkflow(workflowJson) {
 }
 
 // ---------- Build ER data from ONE job (using your new JSON) ----------
+// ---------- Build ER data from ONE job (tree-style layout) ----------
 function buildErDataFromJob(job) {
-  // NEW: directly use "columns" as an object
-  const columnsMap =
-    job.columns && typeof job.columns === "object"
-      ? job.columns
-      : {};
+  if (!job) {
+    return { tables: [], joins: [] };
+  }
 
-  const tableNames = Object.keys(columnsMap);
+  // columns is now an object: { accounts: [...], branches: [...], ... }
+  const colObj =
+    job.columns && typeof job.columns === "object" ? job.columns : {};
 
-  const allJoinDefs = []
-    .concat(Array.isArray(job.inner_join) ? job.inner_join : [])
-    .concat(Array.isArray(job.left_join) ? job.left_join : [])
-    .concat(Array.isArray(job.right_join) ? job.right_join : []);
+  // Use columns as the source of truth for table names,
+  // fall back to job.tables if needed.
+  let tableNames = Object.keys(colObj);
+  if (!tableNames.length && Array.isArray(job.tables)) {
+    tableNames = job.tables.slice();
+  }
 
-  const degree = {};
-  allJoinDefs.forEach((j) => {
-    (j.tablesUsed || []).forEach((t) => {
-      degree[t] = (degree[t] || 0) + 1;
-    });
+  // --- Build adjacency from ALL joins (inner / left / right) ---
+  const adj = {};
+  tableNames.forEach((t) => {
+    adj[t] = [];
   });
 
-  let hubName = tableNames[0] || null;
+  const addEdge = (a, b) => {
+    if (!a || !b) return;
+    if (!adj[a]) adj[a] = [];
+    if (!adj[b]) adj[b] = [];
+    if (!adj[a].includes(b)) adj[a].push(b);
+    if (!adj[b].includes(a)) adj[b].push(a);
+  };
+
+  const addFromJoins = (arr) => {
+    if (!Array.isArray(arr)) return;
+    arr.forEach((j) => {
+      const pair = j.tablesUsed || [];
+      if (pair.length >= 2) {
+        const [a, b] = pair;
+        addEdge(a, b);
+      }
+    });
+  };
+
+  addFromJoins(job.inner_join);
+  addFromJoins(job.left_join);
+  addFromJoins(job.right_join);
+
+  // Make sure any table that only appears in joins is also in tableNames
+  Object.keys(adj).forEach((t) => {
+    if (!tableNames.includes(t)) tableNames.push(t);
+  });
+
+  // --- Choose a "hub" / root: table with highest degree ---
+  const degree = {};
   tableNames.forEach((t) => {
-    if ((degree[t] || 0) > (degree[hubName] || 0)) {
-      hubName = t;
+    degree[t] = (adj[t] || []).length;
+  });
+
+  let root = tableNames[0] || null;
+  tableNames.forEach((t) => {
+    if ((degree[t] || 0) > (degree[root] || 0)) {
+      root = t;
     }
   });
 
-  const centerX = 450;
-  const centerY = 260;
-  const baseRadius = 180;
-  const radius = baseRadius + Math.max(0, tableNames.length - 3) * 20;
+  // --- BFS from root to compute layers (tree levels) ---
+  const layer = {};
+  const visited = {};
+  const queue = [];
 
-  const tables = [];
+  if (root) {
+    layer[root] = 0;
+    visited[root] = true;
+    queue.push(root);
+  }
 
-  if (hubName) {
-    const hubCols = Array.isArray(columnsMap[hubName])
-      ? columnsMap[hubName]
-      : [];
-
-    tables.push({
-      id: hubName,
-      name: hubName,
-      position: { x: centerX, y: centerY },
-      columns: hubCols.map((name) => ({
-        name,
-        isPrimaryKey: false,
-        isForeignKey: false,
-      })),
+  while (queue.length) {
+    const u = queue.shift();
+    const lu = layer[u];
+    (adj[u] || []).forEach((v) => {
+      if (!visited[v]) {
+        visited[v] = true;
+        layer[v] = lu + 1;
+        queue.push(v);
+      }
     });
   }
 
-  const others = tableNames.filter((t) => t !== hubName);
-  const n = others.length;
-  const angleStart = -Math.PI * 0.7;
-  const angleSpan = Math.PI * 1.4;
-
-  others.forEach((tName, idx) => {
-    const cols = Array.isArray(columnsMap[tName]) ? columnsMap[tName] : [];
-    const tNorm = n <= 1 ? 0.5 : idx / (n - 1);
-    const angle = angleStart + angleSpan * tNorm;
-    const x = centerX + radius * Math.cos(angle);
-    const y = centerY + radius * Math.sin(angle);
-
-    tables.push({
-      id: tName,
-      name: tName,
-      position: { x, y },
-      columns: cols.map((name) => ({
-        name,
-        isPrimaryKey: false,
-        isForeignKey: false,
-      })),
-    });
+  // Any tables not connected via joins go one layer to the right
+  let maxLayer = 0;
+  tableNames.forEach((t) => {
+    if (layer[t] == null) {
+      maxLayer += 1;
+      layer[t] = maxLayer;
+    } else if (layer[t] > maxLayer) {
+      maxLayer = layer[t];
+    }
   });
 
+  // Group tables by layer
+  const layerToTables = {};
+  tableNames.forEach((t) => {
+    const lv = layer[t] || 0;
+    if (!layerToTables[lv]) layerToTables[lv] = [];
+    layerToTables[lv].push(t);
+  });
+
+  // --- Tree-style positions: layers along X, rows along Y ---
+  const baseX = 260;      // starting X for layer 0
+  const gapX = 260;       // horizontal gap between layers
+  const centerY = 260;    // vertical center
+  const gapY = 110;       // vertical gap between tables in same layer
+
+  const tables = [];
+  Object.keys(layerToTables)
+    .map((k) => parseInt(k, 10))
+    .sort((a, b) => a - b)
+    .forEach((lv) => {
+      const group = layerToTables[lv];
+      const n = group.length;
+      group.forEach((tName, idx) => {
+        const cols = Array.isArray(colObj[tName]) ? colObj[tName] : [];
+        const offset = n <= 1 ? 0 : idx - (n - 1) / 2; // centered around centerY
+        const x = baseX + lv * gapX;
+        const y = centerY + offset * gapY;
+
+        tables.push({
+          id: tName,
+          name: tName,
+          position: { x, y },
+          columns: cols.map((cName) => ({
+            name: cName,
+            isPrimaryKey: false,
+            isForeignKey: false,
+          })),
+        });
+      });
+    });
+
+  // --- Build joins list for ErDiagramView (unchanged logic) ---
   const joins = [];
 
-  function pushJoins(arr, type) {
+  const pushJoins = (arr, type) => {
     if (!Array.isArray(arr)) return;
     arr.forEach((j) => {
       const [from, to] = j.tablesUsed || [];
-      const attrs = j.attr_list || [];
+      const attrs = Array.isArray(j.attr_list) ? j.attr_list : [];
       joins.push({
         from,
         to,
-        type,
+        type, // "INNER" | "LEFT" | "RIGHT"
         condition: attrs.join(", "),
         fields: attrs.map((a) => ({
-          from: from + "." + a,
-          to: to + "." + a,
+          from: `${from}.${a}`,
+          to: `${to}.${a}`,
         })),
       });
     });
-  }
+  };
 
   pushJoins(job.inner_join, "INNER");
   pushJoins(job.left_join, "LEFT");
@@ -368,6 +431,7 @@ function buildErDataFromJob(job) {
 
   return { tables, joins };
 }
+
 
 
 // ---------- Main component ----------
