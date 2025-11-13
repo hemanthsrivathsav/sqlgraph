@@ -1,9 +1,11 @@
-import React, { useState, useRef } from "react";
-
+import React, { useRef, useState } from "react";
 import type { JobSpec } from "../types";
 
+type Props = {
+  onSpecReady: (spec: JobSpec) => void;
+};
 
-function Starter({ onSpecReady }: { onSpecReady: (spec: JobSpec) => void }) {
+const Starter: React.FC<Props> = ({ onSpecReady }) => {
   const [dragOver, setDragOver] = useState(false);
   const [progress, setProgress] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -12,32 +14,24 @@ function Starter({ onSpecReady }: { onSpecReady: (spec: JobSpec) => void }) {
   const handlePick = () => fileRef.current?.click();
 
   const simulatePythonProcess = async (file: File) => {
-  setBusy(true);
-  setProgress(0);
-
-  const form = new FormData();
-  form.append("file", file);
-
-  // simple progress feel while the network call happens
-  const tick = setInterval(() => setProgress(p => Math.min(95, p + 2)), 100);
-
-  try {
-    const res = await fetch("http://localhost:8000/process-zip", {
-      method: "POST",
-      body: form,
-    });
-    const spec: JobSpec = await res.json();
-    setProgress(100);
+    setBusy(true);
+    setProgress(0);
+    for (let i = 0; i <= 20; i++) {
+      await new Promise(r => setTimeout(r, 80));
+      setProgress(Math.round((i / 20) * 100));
+    }
+    const spec: JobSpec = {
+      "JobA/orders.sql": { depends_on: [], impact: 12 },
+      "JobA/customers.sql": { depends_on: [], impact: 48 },
+      "JobB/products.sql": { depends_on: [], impact: 67 },
+      "JobA/orders_agg.sql": {
+        depends_on: ["JobA/orders.sql", "JobA/customers.sql", "JobB/products.sql"],
+        impact: 83,
+      },
+    };
     onSpecReady(spec);
-  } catch (e) {
-    alert("Processing failed. Check backend logs.");
-    console.error(e);
-  } finally {
-    clearInterval(tick);
     setBusy(false);
-  }
-};
-
+  };
 
   const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -55,30 +49,49 @@ function Starter({ onSpecReady }: { onSpecReady: (spec: JobSpec) => void }) {
   };
 
   return (
-    <div className="w-full h-screen bg-gradient-to-br from-zinc-50 to-zinc-100 flex items-center justify-center p-6">
-      <input ref={fileRef} type="file" accept=".zip" className="hidden" onChange={onFile} />
+    <div className="app-fullscreen">
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".zip"
+        className="hidden-input"
+        onChange={onFile}
+      />
       <div
-        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        className={
+          "starter-card" +
+          (dragOver ? " starter-card--dragover" : "")
+        }
+        onDragOver={e => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
         onDragLeave={() => setDragOver(false)}
         onDrop={onDrop}
-        className={`w-[720px] max-w-full rounded-2xl border-2 ${dragOver ? "border-indigo-500 bg-indigo-50" : "border-dashed border-zinc-300 bg-white"} shadow p-10 text-center`}
       >
-        <div className="text-2xl font-semibold text-zinc-800">Upload your SQL ZIP</div>
-        <p className="text-sm text-zinc-600 mt-2">Drop a .zip with folders of .sql files. We'll extract dependencies and build the job graph.</p>
-        <button onClick={handlePick} className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-zinc-300 hover:bg-zinc-50">Choose .zip</button>
+        <h1 className="starter-title">Upload your SQL ZIP</h1>
+        <p className="starter-subtitle">
+          Drop a .zip with folders of .sql files. We’ll extract dependencies and build the job graph.
+        </p>
+        <button className="btn" onClick={handlePick}>
+          Choose .zip
+        </button>
 
         {busy && (
-          <div className="mt-8">
-            <div className="text-sm text-zinc-600 mb-2">Processing…</div>
-            <div className="w-full h-2 bg-zinc-200 rounded-full overflow-hidden">
-              <div className="h-full bg-indigo-500 transition-all" style={{ width: `${progress}%` }} />
+          <div className="starter-progress">
+            <div className="starter-progress-label">Processing…</div>
+            <div className="progress-track">
+              <div
+                className="progress-fill"
+                style={{ width: `${progress}%` }}
+              />
             </div>
-            <div className="text-xs text-zinc-500 mt-1">{progress}%</div>
+            <div className="starter-progress-percent">{progress}%</div>
           </div>
         )}
       </div>
     </div>
   );
-}
+};
 
 export default Starter;
