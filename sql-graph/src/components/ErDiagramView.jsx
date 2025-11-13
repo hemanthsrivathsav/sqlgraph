@@ -1,21 +1,22 @@
 import React from "react";
-import type { JobErSpec, JoinEntry } from "../types";
 
-type Props = {
-  spec: JobErSpec;
-  onBack: () => void;
-};
+// spec shape reference:
+// {
+//   job_name: string,
+//   tables: string[],
+//   innerJoin?: [{ tablesUsed: string[], attr_list: string[] }],
+//   leftJoin?: [...],
+//   rightJoin?: [...]
+// }
 
-type TablePos = { x: number; y: number };
-
-const ErDiagramView: React.FC<Props> = ({ spec, onBack }) => {
+export default function ErDiagramView({ spec, onBack }) {
   const width = 900;
   const height = 540;
   const centerX = width / 2;
   const centerY = height / 2;
   const radius = 180;
 
-  const tablePositions: Record<string, TablePos> = {};
+  const tablePositions = {};
   const n = spec.tables.length || 1;
 
   spec.tables.forEach((t, idx) => {
@@ -26,12 +27,18 @@ const ErDiagramView: React.FC<Props> = ({ spec, onBack }) => {
     };
   });
 
-  const allJoins: { type: "inner" | "left" | "right"; join: JoinEntry }[] = [];
-  (spec.innerJoin || []).forEach(j => allJoins.push({ type: "inner", join: j }));
-  (spec.leftJoin || []).forEach(j => allJoins.push({ type: "left", join: j }));
-  (spec.rightJoin || []).forEach(j => allJoins.push({ type: "right", join: j }));
+  const allJoins = [];
+  (spec.innerJoin || []).forEach((j) =>
+    allJoins.push({ type: "inner", join: j })
+  );
+  (spec.leftJoin || []).forEach((j) =>
+    allJoins.push({ type: "left", join: j })
+  );
+  (spec.rightJoin || []).forEach((j) =>
+    allJoins.push({ type: "right", join: j })
+  );
 
-  const joinColor: Record<"inner" | "left" | "right", string> = {
+  const joinColor = {
     inner: "#2563eb",
     left: "#16a34a",
     right: "#dc2626",
@@ -44,17 +51,14 @@ const ErDiagramView: React.FC<Props> = ({ spec, onBack }) => {
           ← Back to job graph
         </button>
         <div className="er-header-title">
-          ER view for: <span className="er-header-job">{spec.job_name}</span>
+          ER view for:{" "}
+          <span className="er-header-job">{spec.job_name}</span>
         </div>
       </header>
 
       <div className="er-main">
         <div className="er-diagram-wrapper">
-          <svg
-            width={width}
-            height={height}
-            className="er-diagram"
-          >
+          <svg width={width} height={height} className="er-diagram">
             {/* Joins as lines */}
             {allJoins.map((j, idx) => {
               const t0 = j.join.tablesUsed[0];
@@ -107,7 +111,7 @@ const ErDiagramView: React.FC<Props> = ({ spec, onBack }) => {
             })}
 
             {/* Tables as nodes */}
-            {spec.tables.map(t => {
+            {spec.tables.map((t) => {
               const pos = tablePositions[t];
               if (!pos) return null;
               const w = 120;
@@ -141,7 +145,7 @@ const ErDiagramView: React.FC<Props> = ({ spec, onBack }) => {
         <aside className="er-sidebar">
           <div className="er-section-title">Tables</div>
           <ul className="er-table-list">
-            {spec.tables.map(t => (
+            {spec.tables.map((t) => (
               <li key={t}>{t}</li>
             ))}
           </ul>
@@ -177,6 +181,4 @@ const ErDiagramView: React.FC<Props> = ({ spec, onBack }) => {
       </div>
     </div>
   );
-};
-
-export default ErDiagramView;
+}

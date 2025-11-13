@@ -1,28 +1,18 @@
-import React, { useMemo, useRef, useState, useEffect } from "react";
+import React, {
+  useMemo,
+  useRef,
+  useState,
+  useEffect,
+} from "react";
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 import Starter from "./Starter";
 import ErDiagramView from "./ErDiagramView";
-import type { JobSpec, JobErSpec } from "../types";
 
 const NODE_W = 220;
 const NODE_H = 96;
 
-export type JobNode = {
-  id: string;
-  label: string;
-  x: number;
-  y: number;
-  impact?: number;
-};
-
-export type JobEdge = {
-  id: string;
-  from: string;
-  to: string;
-};
-
 // ---------- Geometry / helpers ----------
-function pathBetween(a: { x: number; y: number }, b: { x: number; y: number }) {
+function pathBetween(a, b) {
   const dx = (b.x - a.x) * 0.5;
   const dy = (b.y - a.y) * 0.0;
   const c1x = a.x + dx;
@@ -32,7 +22,7 @@ function pathBetween(a: { x: number; y: number }, b: { x: number; y: number }) {
   return `M ${a.x},${a.y} C ${c1x},${c1y} ${c2x},${c2y} ${b.x},${b.y}`;
 }
 
-function anchorFor(from: JobNode, to: JobNode) {
+function anchorFor(from, to) {
   const cx = from.x;
   const cy = from.y;
   const dx = to.x - cx;
@@ -59,7 +49,7 @@ function anchorFor(from: JobNode, to: JobNode) {
   return { x: anchorX, y: anchorY };
 }
 
-function impactColors(impact: number | undefined) {
+function impactColors(impact) {
   const v = Math.max(0, Math.min(100, impact ?? 0));
   const GREEN = { stroke: "#16a34a", fill: "rgba(22, 163, 74, 0.16)" };
   const YELLOW = { stroke: "#ca8a04", fill: "rgba(202, 138, 4, 0.16)" };
@@ -69,25 +59,32 @@ function impactColors(impact: number | undefined) {
   return RED;
 }
 
-export function getBounds(nodes: JobNode[]) {
-  const xs = nodes.map(n => n.x);
-  const ys = nodes.map(n => n.y);
-  const minX = Math.min(...xs), maxX = Math.max(...xs);
-  const minY = Math.min(...ys), maxY = Math.max(...ys);
-  return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
+function getBounds(nodes) {
+  const xs = nodes.map((n) => n.x);
+  const ys = nodes.map((n) => n.y);
+  const minX = Math.min(...xs),
+    maxX = Math.max(...xs);
+  const minY = Math.min(...ys),
+    maxY = Math.max(...ys);
+  return {
+    minX,
+    minY,
+    maxX,
+    maxY,
+    width: maxX - minX,
+    height: maxY - minY,
+  };
 }
 
-function getCenter(bounds: { minX: number; minY: number; maxX: number; maxY: number }) {
-  return { cx: (bounds.minX + bounds.maxX) / 2, cy: (bounds.minY + bounds.maxY) / 2 };
+function getCenter(bounds) {
+  return {
+    cx: (bounds.minX + bounds.maxX) / 2,
+    cy: (bounds.minY + bounds.maxY) / 2,
+  };
 }
 
 // ---------- Node Card ----------
-type NodeCardProps = {
-  node: JobNode;
-  onClick?: () => void;
-};
-
-function NodeCard({ node, onClick }: NodeCardProps) {
+function NodeCard({ node, onClick }) {
   const { stroke, fill } = impactColors(node.impact);
   return (
     <div
@@ -122,38 +119,21 @@ function NodeCard({ node, onClick }: NodeCardProps) {
 }
 
 // ---------- Background Grid ----------
-function GridBackground({ width, height }: { width: number; height: number }) {
-  return (
-    <div
-      className="grid-background"
-      style={{ width, height }}
-    />
-  );
+function GridBackground({ width, height }) {
+  return <div className="grid-background" style={{ width, height }} />;
 }
 
 // ---------- Toolbar ----------
-type ToolbarProps = {
-  apiRef: React.MutableRefObject<any>;
-  onFit?: () => void;
-  onReset?: () => void;
-  onLoadJson?: (obj: JobSpec) => void;
-};
-
-function Toolbar({
-  apiRef,
-  onFit,
-  onReset,
-  onLoadJson,
-}: ToolbarProps) {
-  const fileRef = React.useRef<HTMLInputElement | null>(null);
+function Toolbar({ apiRef, onFit, onReset, onLoadJson }) {
+  const fileRef = React.useRef(null);
   const onPick = () => fileRef.current?.click();
 
-  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const onFile = async (e) => {
     const f = e.target.files?.[0];
     if (!f) return;
     const text = await f.text();
     try {
-      const obj = JSON.parse(text) as JobSpec;
+      const obj = JSON.parse(text);
       onLoadJson?.(obj);
     } catch (err) {
       console.error("Invalid JSON", err);
@@ -175,10 +155,16 @@ function Toolbar({
       <button className="btn btn-sm" onClick={onPick}>
         Load JSON
       </button>
-      <button className="btn btn-sm" onClick={() => apiRef.current?.zoomOut()}>
+      <button
+        className="btn btn-sm"
+        onClick={() => apiRef.current?.zoomOut()}
+      >
         −
       </button>
-      <button className="btn btn-sm" onClick={() => apiRef.current?.zoomIn()}>
+      <button
+        className="btn btn-sm"
+        onClick={() => apiRef.current?.zoomIn()}
+      >
         +
       </button>
       <button className="btn btn-sm" onClick={() => onReset?.()}>
@@ -192,19 +178,14 @@ function Toolbar({
 }
 
 // ---------- MiniMap ----------
-type MiniMapProps = {
-  width: number;
-  height: number;
-  nodes: JobNode[];
-};
-
-function MiniMap({ width, height, nodes }: MiniMapProps) {
+function MiniMap({ width, height, nodes }) {
   if (nodes.length === 0) return null;
-  const W = 200, H = 140;
-  const minX = Math.min(...nodes.map(n => n.x));
-  const minY = Math.min(...nodes.map(n => n.y));
-  const maxX = Math.max(...nodes.map(n => n.x));
-  const maxY = Math.max(...nodes.map(n => n.y));
+  const W = 200,
+    H = 140;
+  const minX = Math.min(...nodes.map((n) => n.x));
+  const minY = Math.min(...nodes.map((n) => n.y));
+  const maxX = Math.max(...nodes.map((n) => n.x));
+  const maxY = Math.max(...nodes.map((n) => n.y));
   const spanX = Math.max(1, maxX - minX);
   const spanY = Math.max(1, maxY - minY);
 
@@ -212,7 +193,7 @@ function MiniMap({ width, height, nodes }: MiniMapProps) {
     <div className="minimap">
       <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`}>
         <rect x={0} y={0} width={W} height={H} rx={8} fill="#f8f8f8" stroke="#ddd" />
-        {nodes.map(n => {
+        {nodes.map((n) => {
           const nx = ((n.x - minX) / spanX) * (W - 16) + 8;
           const ny = ((n.y - minY) / spanY) * (H - 16) + 8;
           return <circle key={n.id} cx={nx} cy={ny} r={3} fill="#888" />;
@@ -223,36 +204,38 @@ function MiniMap({ width, height, nodes }: MiniMapProps) {
 }
 
 // ---------- Build graph from spec ----------
-function topoLevels(spec: JobSpec): Map<string, number> {
-  const indeg = new Map<string, number>();
-  const adj = new Map<string, string[]>();
-  Object.keys(spec).forEach(k => {
+// spec expected shape:
+// { jobName: { depends_on?: string[], impact?: number } | null }
+function topoLevels(spec) {
+  const indeg = new Map();
+  const adj = new Map();
+  Object.keys(spec).forEach((k) => {
     indeg.set(k, 0);
     adj.set(k, []);
   });
 
   for (const [job, cfg] of Object.entries(spec)) {
-    const deps = cfg?.depends_on || [];
+    const deps = (cfg && cfg.depends_on) || [];
     for (const d of deps) {
       if (!indeg.has(d)) {
         indeg.set(d, 0);
         adj.set(d, []);
       }
-      adj.get(d)!.push(job);
+      adj.get(d).push(job);
       indeg.set(job, (indeg.get(job) || 0) + 1);
     }
   }
 
-  const q: string[] = [];
+  const q = [];
   indeg.forEach((v, k) => {
     if (v === 0) q.push(k);
   });
 
-  const level = new Map<string, number>();
-  q.forEach(k => level.set(k, 0));
+  const level = new Map();
+  q.forEach((k) => level.set(k, 0));
 
   while (q.length) {
-    const u = q.shift()!;
+    const u = q.shift();
     for (const v of adj.get(u) || []) {
       const lu = level.get(u) || 0;
       level.set(v, Math.max(level.get(v) || 0, lu + 1));
@@ -261,16 +244,16 @@ function topoLevels(spec: JobSpec): Map<string, number> {
     }
   }
 
-  Object.keys(spec).forEach(k => {
+  Object.keys(spec).forEach((k) => {
     if (!level.has(k)) level.set(k, 0);
   });
 
   return level;
 }
 
-function buildGraphFromSpec(spec: JobSpec) {
+function buildGraphFromSpec(spec) {
   const levels = topoLevels(spec);
-  const byLevel = new Map<number, string[]>();
+  const byLevel = new Map();
   levels.forEach((lv, job) => {
     const arr = byLevel.get(lv) || [];
     arr.push(job);
@@ -279,8 +262,8 @@ function buildGraphFromSpec(spec: JobSpec) {
 
   const LAYER_GAP_X = 360;
   const LAYER_GAP_Y = 180;
-  const nodesOut: JobNode[] = [];
-  const edgesOut: JobEdge[] = [];
+  const nodesOut = [];
+  const edgesOut = [];
   const startX = 400;
   const startY = 300;
 
@@ -290,19 +273,20 @@ function buildGraphFromSpec(spec: JobSpec) {
     jobs.forEach((job, idx) => {
       const x = startX + lv * LAYER_GAP_X;
       const y = startY + idx * LAYER_GAP_Y;
+      const cfg = spec[job];
       nodesOut.push({
         id: job,
         label: job,
         x,
         y,
-        impact: spec[job]?.impact ?? 0,
+        impact: cfg && cfg.impact ? cfg.impact : 0,
       });
     });
   }
 
-  const nodeIds = new Set(nodesOut.map(n => n.id));
+  const nodeIds = new Set(nodesOut.map((n) => n.id));
   for (const [job, cfg] of Object.entries(spec)) {
-    const deps = cfg?.depends_on || [];
+    const deps = (cfg && cfg.depends_on) || [];
     for (const d of deps) {
       if (!nodeIds.has(d)) {
         nodesOut.push({
@@ -322,16 +306,16 @@ function buildGraphFromSpec(spec: JobSpec) {
 }
 
 // ---------- Main ----------
-const JobGraphCanvas: React.FC = () => {
+export default function JobGraphCanvas() {
   const CANVAS_W = 4000;
   const CANVAS_H = 3000;
 
-  const [nodes, setNodes] = useState<JobNode[]>([]);
-  const [edges, setEdges] = useState<JobEdge[]>([]);
-  const [mode, setMode] = useState<"start" | "graph" | "details">("start");
-  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [nodes, setNodes] = useState([]);
+  const [edges, setEdges] = useState([]);
+  const [mode, setMode] = useState("start"); // "start" | "graph" | "details"
+  const [selectedJobId, setSelectedJobId] = useState(null);
 
-  const [jobErMap] = useState<Record<string, JobErSpec>>({
+  const [jobErMap] = useState({
     "JobA/orders_agg.sql": {
       job_name: "JobA/orders_agg.sql",
       tables: ["Table1", "Table2", "Table4"],
@@ -351,12 +335,12 @@ const JobGraphCanvas: React.FC = () => {
   });
 
   const nodeById = useMemo(
-    () => Object.fromEntries(nodes.map(n => [n.id, n] as const)),
+    () => Object.fromEntries(nodes.map((n) => [n.id, n])),
     [nodes]
   );
 
-  const apiRef = useRef<any>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
+  const apiRef = useRef(null);
+  const containerRef = useRef(null);
 
   const fitToCanvas = () => {
     const wrapper = containerRef.current;
@@ -373,7 +357,7 @@ const JobGraphCanvas: React.FC = () => {
     api.setTransform(x, y, scale);
   };
 
-  const centerOnNodes = (scale: number = 1) => {
+  const centerOnNodes = (scale = 1) => {
     const wrapper = containerRef.current;
     const api = apiRef.current;
     if (!wrapper || !api || nodes.length === 0) return;
@@ -394,7 +378,7 @@ const JobGraphCanvas: React.FC = () => {
     return () => window.removeEventListener("resize", onResize);
   }, [mode]);
 
-  function handleSpec(spec: JobSpec) {
+  function handleSpec(spec) {
     const { nodesOut, edgesOut } = buildGraphFromSpec(spec);
     setNodes(nodesOut);
     setEdges(edgesOut);
@@ -416,10 +400,7 @@ const JobGraphCanvas: React.FC = () => {
               No ER data available for{" "}
               <span className="no-er-job">{selectedJobId}</span>
             </div>
-            <button
-              className="btn"
-              onClick={() => setMode("graph")}
-            >
+            <button className="btn" onClick={() => setMode("graph")}>
               ← Back to job graph
             </button>
           </div>
@@ -447,7 +428,7 @@ const JobGraphCanvas: React.FC = () => {
           apiRef={apiRef}
           onFit={fitToCanvas}
           onReset={() => centerOnNodes(1)}
-          onLoadJson={obj => {
+          onLoadJson={(obj) => {
             const { nodesOut, edgesOut } = buildGraphFromSpec(obj);
             setNodes(nodesOut);
             setEdges(edgesOut);
@@ -473,7 +454,7 @@ const JobGraphCanvas: React.FC = () => {
                   <path d="M 0 0 L 10 5 L 0 10 z" fill="#1F2937" />
                 </marker>
               </defs>
-              {edges.map(e => {
+              {edges.map((e) => {
                 const a = nodeById[e.from];
                 const b = nodeById[e.to];
                 if (!a || !b) return null;
@@ -503,7 +484,7 @@ const JobGraphCanvas: React.FC = () => {
                 );
               })}
             </svg>
-            {nodes.map(n => (
+            {nodes.map((n) => (
               <NodeCard
                 key={n.id}
                 node={n}
@@ -522,6 +503,4 @@ const JobGraphCanvas: React.FC = () => {
       </div>
     </div>
   );
-};
-
-export default JobGraphCanvas;
+}
