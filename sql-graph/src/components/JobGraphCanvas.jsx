@@ -1,9 +1,4 @@
-import React, {
-  useMemo,
-  useRef,
-  useState,
-  useEffect,
-} from "react";
+import React, { useMemo, useRef, useState, useEffect } from "react";
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 import Starter from "./Starter";
 import ErDiagramView from "./ErDiagramView";
@@ -43,10 +38,10 @@ function anchorFor(from, to) {
     Math.abs(ry / (Math.abs(unitDy) + 0.0001))
   );
 
-  const anchorX = cx + unitDx * t;
-  const anchorY = cy + unitDy * t;
-
-  return { x: anchorX, y: anchorY };
+  return {
+    x: cx + unitDx * t,
+    y: cy + unitDy * t,
+  };
 }
 
 function impactColors(impact) {
@@ -112,12 +107,7 @@ function NodeCard({ node, onClick }) {
 
 // ---------- Background Grid ----------
 function GridBackground({ width, height }) {
-  return (
-    <div
-      className="grid-background"
-      style={{ width, height }}
-    />
-  );
+  return <div className="grid-background" style={{ width, height }} />;
 }
 
 // ---------- MiniMap ----------
@@ -148,7 +138,21 @@ function MiniMap({ width, height, nodes }) {
   );
 }
 
-// ---------- Graph builder from jobs ----------
+// ---------- Build graph from workflow JSON ----------
+// workflowJson shape:
+//
+// {
+//   workflow_name: string,
+//   jobs: [
+//     {
+//       job_name: string,
+//       rank?: number,
+//       dependencies?: string[]
+//       ...
+//     }
+//   ]
+// }
+
 function topoLevelsFromJobs(jobs) {
   const indeg = new Map();
   const adj = new Map();
@@ -174,6 +178,7 @@ function topoLevelsFromJobs(jobs) {
   indeg.forEach((v, k) => {
     if (v === 0) q.push(k);
   });
+
   const level = new Map();
   q.forEach((k) => level.set(k, 0));
 
@@ -260,30 +265,16 @@ function buildGraphFromWorkflow(workflowJson) {
   return { nodesOut, edgesOut };
 }
 
-// ---------- Build ER data from ONE job using your JSON ----------
-// ---------- Build ER data from ONE job (using your JSON) ----------
+// ---------- Build ER data from ONE job (using your new JSON) ----------
 function buildErDataFromJob(job) {
-  // `columns` is: [ { tableName: [col1, col2, ...], ... } ]
-  const colObj =
-    Array.isArray(job.columns) &&
-    job.columns.length > 0 &&
-    job.columns[0] &&
-    typeof job.columns[0] === "object"
-      ? job.columns[0]
+  // NEW: directly use "columns" as an object
+  const columnsMap =
+    job.columns && typeof job.columns === "object"
+      ? job.columns
       : {};
 
-  // Table list = union of job.tables + keys from columns object
-  const tablesFromColumns = Object.keys(colObj);
-  const tablesFromJob = Array.isArray(job.tables) ? job.tables : [];
-  const tableNames = Array.from(
-    new Set([...tablesFromJob, ...tablesFromColumns])
-  );
+  const tableNames = Object.keys(columnsMap);
 
-  if (!tableNames.length) {
-    return { tables: [], joins: [] };
-  }
-
-  // All joins (inner/left/right) – used to pick a "hub" table
   const allJoinDefs = []
     .concat(Array.isArray(job.inner_join) ? job.inner_join : [])
     .concat(Array.isArray(job.left_join) ? job.left_join : [])
@@ -296,8 +287,7 @@ function buildErDataFromJob(job) {
     });
   });
 
-  // Hub = most-connected table (fallback: first table)
-  let hubName = tableNames[0];
+  let hubName = tableNames[0] || null;
   tableNames.forEach((t) => {
     if ((degree[t] || 0) > (degree[hubName] || 0)) {
       hubName = t;
@@ -309,32 +299,32 @@ function buildErDataFromJob(job) {
   const baseRadius = 180;
   const radius = baseRadius + Math.max(0, tableNames.length - 3) * 20;
 
-  const makeColumns = (tName) => {
-    const cols = Array.isArray(colObj[tName]) ? colObj[tName] : [];
-    return cols.map((cName) => ({
-      name: cName,
-      isPrimaryKey: false,
-      isForeignKey: false,
-    }));
-  };
-
   const tables = [];
 
-  // Hub in the middle
-  tables.push({
-    id: hubName,
-    name: hubName,
-    position: { x: centerX, y: centerY },
-    columns: makeColumns(hubName),
-  });
+  if (hubName) {
+    const hubCols = Array.isArray(columnsMap[hubName])
+      ? columnsMap[hubName]
+      : [];
 
-  // Others in an arc around the hub
+    tables.push({
+      id: hubName,
+      name: hubName,
+      position: { x: centerX, y: centerY },
+      columns: hubCols.map((name) => ({
+        name,
+        isPrimaryKey: false,
+        isForeignKey: false,
+      })),
+    });
+  }
+
   const others = tableNames.filter((t) => t !== hubName);
   const n = others.length;
   const angleStart = -Math.PI * 0.7;
   const angleSpan = Math.PI * 1.4;
 
   others.forEach((tName, idx) => {
+    const cols = Array.isArray(columnsMap[tName]) ? columnsMap[tName] : [];
     const tNorm = n <= 1 ? 0.5 : idx / (n - 1);
     const angle = angleStart + angleSpan * tNorm;
     const x = centerX + radius * Math.cos(angle);
@@ -344,14 +334,17 @@ function buildErDataFromJob(job) {
       id: tName,
       name: tName,
       position: { x, y },
-      columns: makeColumns(tName),
+      columns: cols.map((name) => ({
+        name,
+        isPrimaryKey: false,
+        isForeignKey: false,
+      })),
     });
   });
 
-  // Build joins for ERDiagramView
   const joins = [];
 
-  const pushJoins = (arr, type) => {
+  function pushJoins(arr, type) {
     if (!Array.isArray(arr)) return;
     arr.forEach((j) => {
       const [from, to] = j.tablesUsed || [];
@@ -359,15 +352,15 @@ function buildErDataFromJob(job) {
       joins.push({
         from,
         to,
-        type, // "INNER" | "LEFT" | "RIGHT"
+        type,
         condition: attrs.join(", "),
         fields: attrs.map((a) => ({
-          from: `${from}.${a}`,
-          to: `${to}.${a}`,
+          from: from + "." + a,
+          to: to + "." + a,
         })),
       });
     });
-  };
+  }
 
   pushJoins(job.inner_join, "INNER");
   pushJoins(job.left_join, "LEFT");
@@ -378,21 +371,16 @@ function buildErDataFromJob(job) {
 
 
 // ---------- Main component ----------
-
 export default function JobGraphCanvas() {
   const CANVAS_W = 4000;
   const CANVAS_H = 3000;
 
-  
-  // mode: "start" -> Starter, "workflow" -> workflow cards, "graph" -> job graph, "details" -> ER view
-  const [mode, setMode] = useState("start");
-
-  const [workflows, setWorkflows] = useState([]);  // list of workflow objects
-
-  const [workflow, setWorkflow] = useState(null);  // currently selected workflow
+  const [workflow, setWorkflow] = useState(null);
+  const [workflowExpanded, setWorkflowExpanded] = useState(false);
 
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
+  const [mode, setMode] = useState("start"); // "start" | "graph" | "details"
 
   const [erView, setErView] = useState({
     fileName: "",
@@ -442,83 +430,20 @@ export default function JobGraphCanvas() {
     return () => window.removeEventListener("resize", onResize);
   }, [mode]);
 
-  // Called by Starter (and also by toolbar JSON loader)
-function handleSpec(workflowJson) {
-  // Save the workflow and show the workflow card first.
-  // workflowJson looks like: { workflow_name: string, jobs: [...] }
-  setWorkflow(workflowJson);
-  setNodes([]);
-  setEdges([]);
-  setMode("workflow");
-}
+  function handleSpec(workflowJson) {
+    setWorkflow(workflowJson);
+    setWorkflowExpanded(false);
+    setNodes([]);
+    setEdges([]);
+    setMode("graph"); // same page, but we only see workflow card first
+  }
 
-  // ---------- MODE: START ----------
+  // STARTER MODE
   if (mode === "start") {
     return <Starter onSpecReady={handleSpec} />;
   }
 
-  if (mode === "workflow" && workflow) {
-  return (
-    <div className="app-fullscreen">
-      <div
-        className="workflow-card"
-        onClick={() => {
-          const { nodesOut, edgesOut } = buildGraphFromWorkflow(workflow);
-          setNodes(nodesOut);
-          setEdges(edgesOut);
-          setMode("graph");
-          setTimeout(() => centerOnNodes(1), 0);
-        }}
-      >
-        <div className="workflow-title">
-          {workflow.workflow_name || "Workflow"}
-        </div>
-        <div className="workflow-subtitle">
-          {(workflow.jobs || []).length} jobs in this workflow
-        </div>
-        <div className="workflow-hint">
-          Click to view job dependency graph
-        </div>
-      </div>
-    </div>
-  );
-}
-
-
-
-  // ---------- MODE: WORKFLOW PICKER ----------
-  if (mode === "workflow") {
-    return (
-      <div className="app-fullscreen">
-        <div className="workflow-list">
-          {workflows.map((wf, idx) => (
-            <div
-              key={idx}
-              className="workflow-card"
-              onClick={() => {
-                const chosen = wf;
-                setWorkflow(chosen);
-                const { nodesOut, edgesOut } = buildGraphFromWorkflow(chosen);
-                setNodes(nodesOut);
-                setEdges(edgesOut);
-                setMode("graph");
-                setTimeout(() => centerOnNodes(1), 0);
-              }}
-            >
-              <div className="workflow-title">
-                {wf.workflow_name || `Workflow ${idx + 1}`}
-              </div>
-              <div className="workflow-subtitle">
-                {(wf.jobs || []).length} jobs
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  // ---------- MODE: ER DETAILS ----------
+  // ER DETAILS MODE
   if (mode === "details") {
     return (
       <ErDiagramView
@@ -530,7 +455,7 @@ function handleSpec(workflowJson) {
     );
   }
 
-  // ---------- MODE: JOB GRAPH ----------
+  // GRAPH MODE (includes workflow overlay + job graph)
   return (
     <div ref={containerRef} className="graph-container">
       <TransformWrapper
@@ -547,7 +472,7 @@ function handleSpec(workflowJson) {
       >
         {/* Toolbar */}
         <div className="toolbar">
-          {/* JSON loader for manual testing – expects your workflow JSON or array of workflows */}
+          {/* Optional file loader for testing raw JSON instead of ZIP */}
           <input
             id="jobgraph-json-input"
             type="file"
@@ -563,7 +488,7 @@ function handleSpec(workflowJson) {
               } catch (err) {
                 console.error("Invalid JSON", err);
                 alert(
-                  "Invalid JSON. Expected shape: { workflow_name: string, jobs: [...] } or an array of such objects."
+                  "Invalid JSON. Expected shape: { workflow_name: string, jobs: [...] }"
                 );
               }
             }}
@@ -602,11 +527,7 @@ function handleSpec(workflowJson) {
             style={{ width: CANVAS_W, height: CANVAS_H }}
           >
             <GridBackground width={CANVAS_W} height={CANVAS_H} />
-            <svg
-              className="edges-layer"
-              width={CANVAS_W}
-              height={CANVAS_H}
-            >
+            <svg className="edges-layer" width={CANVAS_W} height={CANVAS_H}>
               <defs>
                 <marker
                   id="job-arrow-head"
@@ -628,12 +549,7 @@ function handleSpec(workflowJson) {
                 const d = pathBetween(start, end);
                 return (
                   <g key={e.id}>
-                    <path
-                      d={d}
-                      stroke="#9CA3AF"
-                      strokeWidth={2.5}
-                      fill="none"
-                    />
+                    <path d={d} stroke="#9CA3AF" strokeWidth={2.5} fill="none" />
                     <path
                       d={d}
                       stroke="#1F2937"
@@ -672,6 +588,32 @@ function handleSpec(workflowJson) {
           </div>
         </TransformComponent>
       </TransformWrapper>
+
+      {/* 🔹 Workflow overlay shown first on this same page */}
+      {workflow && !workflowExpanded && (
+        <div className="workflow-overlay">
+          <div
+            className="workflow-card"
+            onClick={() => {
+              const { nodesOut, edgesOut } = buildGraphFromWorkflow(workflow);
+              setNodes(nodesOut);
+              setEdges(edgesOut);
+              setWorkflowExpanded(true);
+              setTimeout(() => centerOnNodes(1), 0);
+            }}
+          >
+            <div className="workflow-title">
+              {workflow.workflow_name || "Workflow"}
+            </div>
+            <div className="workflow-subtitle">
+              {(workflow.jobs || []).length} jobs in this workflow
+            </div>
+            <div className="workflow-hint">
+              Click to expand and see job dependencies
+            </div>
+          </div>
+        </div>
+      )}
 
       <MiniMap width={CANVAS_W} height={CANVAS_H} nodes={nodes} />
       <div className="graph-hint">
