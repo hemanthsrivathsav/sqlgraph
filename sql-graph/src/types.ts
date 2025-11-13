@@ -5,6 +5,16 @@ export type JobSpec = {
   } | null;
 };
 
+
+{
+  job_name: string;
+  tables: string[];
+  innerJoin?: { tablesUsed: string[]; attr_list: string[] }[] | null;
+  leftJoin?: ...
+  rightJoin?: ...
+}
+
+
 export type JoinEntry = {
   tablesUsed: string[];   // e.g. ["Table1", "Table2"]
   attr_list: string[];    // e.g. ["t1.id = t2.id"]
