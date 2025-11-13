@@ -1,312 +1,412 @@
-import React, { useMemo, useState } from "react";
-import { ArrowLeft, Database, Link2, Key, Type } from "lucide-react";
+import React, { useState } from "react";
+import { ArrowLeft, Database, Link2, Key } from "lucide-react";
 
-// Props:
-//
-// spec: {
-//   job_name: string;
-//   tables: string[];
-//   innerJoin?: { tablesUsed: string[]; attr_list: string[] }[] | null;
-//   leftJoin?:  { tablesUsed: string[]; attr_list: string[] }[] | null;
-//   rightJoin?: { tablesUsed: string[]; attr_list: string[] }[] | null;
-// }
-//
-// onBack: () => void
-//
-export default function ErDiagramView({ spec, onBack }) {
-  const [selectedTable, setSelectedTable] = useState(null);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
+/**
+ * Props expected:
+ * - fileName: string
+ * - tables: [
+ *     {
+ *       id: string;
+ *       name: string;
+ *       position: { x: number; y: number };
+ *       columns: [{ name: string, isPrimaryKey?: boolean, isForeignKey?: boolean } | string]
+ *     }
+ *   ]
+ * - joins: [
+ *     {
+ *       from: string;
+ *       to: string;
+ *       type: "INNER" | "LEFT" | "RIGHT";
+ *       condition: string;
+ *       fields: [{ from: string; to: string }]
+ *     }
+ *   ]
+ * - onBack: () => void
+ */
 
-  const width = 900;
-  const height = 540;
-  const centerX = width / 2;
-  const centerY = height / 2;
-  const radius = 180;
-  const cardWidth = 240;
-  const cardHeight = 70;
+// --- Join helpers: used for sidebar badges, path colors, and bubbles ---
 
-  const fileName = spec?.job_name || "Unknown job";
+export function getJoinTypeClass(type) {
+  switch (type) {
+    case "INNER":
+      return "er-badge-inner";
+    case "LEFT":
+      return "er-badge-left";
+    case "RIGHT":
+      return "er-badge-right";
+    default:
+      return "er-badge-default";
+  }
+}
 
-  // Build table objects with positions + placeholder columns
-  const tables = useMemo(() => {
-    const names = spec?.tables || [];
-    const n = names.length || 1;
+export function getJoinStrokeColor(type) {
+  switch (type) {
+    case "INNER":
+      return "#3b82f6"; // blue
+    case "LEFT":
+      return "#22c55e"; // green
+    case "RIGHT":
+      return "#f97316"; // orange
+    default:
+      return "#6b7280"; // gray
+  }
+}
 
-    return names.map((name, idx) => {
-      const angle = (2 * Math.PI * idx) / n - Math.PI / 2;
-      const cx = centerX + radius * Math.cos(angle);
-      const cy = centerY + radius * Math.sin(angle);
-
-      const position = {
-        x: cx - cardWidth / 2,
-        y: cy - cardHeight / 2,
-      };
-
-      // Placeholder columns – you can later replace this with real columns from backend
-      const columns = [
-        { name: "id", type: "NUMBER", isPrimaryKey: true, isForeignKey: false },
-        { name: "created_at", type: "TIMESTAMP", isPrimaryKey: false, isForeignKey: false },
-      ];
-
+export function getJoinBubbleStyle(type) {
+  switch (type) {
+    case "INNER":
       return {
-        id: name,
-        name,
-        position,
-        columns,
+        fill: "#dbeafe",
+        stroke: "#93c5fd",
+        text: "#1d4ed8",
       };
-    });
-  }, [spec, centerX, centerY, radius, cardWidth, cardHeight]);
+    case "LEFT":
+      return {
+        fill: "#dcfce7",
+        stroke: "#86efac",
+        text: "#15803d",
+      };
+    case "RIGHT":
+      return {
+        fill: "#ffedd5",
+        stroke: "#fed7aa",
+        text: "#c2410c",
+      };
+    default:
+      return {
+        fill: "#e5e7eb",
+        stroke: "#d1d5db",
+        text: "#4b5563",
+      };
+  }
+}
 
-  // Build joins array from innerJoin/leftJoin/rightJoin
-  const joins = useMemo(() => {
-    const result = [];
 
-    const addJoins = (arr, type) => {
-      if (!arr) return;
-      arr.forEach((j) => {
-        const tablesUsed = j.tablesUsed || [];
-        const from = tablesUsed[0];
-        const to = tablesUsed[1];
-        if (!from || !to) return;
+export default function ErDiagramView({ fileName, tables, joins, onBack }) {
+  const safeTables = Array.isArray(tables) ? tables : [];
+  const safeJoins = Array.isArray(joins) ? joins : [];
 
-        const attrList = j.attr_list || [];
-        const condition = attrList[0] || "";
-        const fields = attrList.map((cond) => {
-          const [lhs, rhs] = cond.split("=").map((s) => s.trim());
-          return {
-            from: lhs || "",
-            to: rhs || "",
-          };
-        });
-
-        result.push({
-          from,
-          to,
-          type,
-          condition,
-          fields,
-        });
-      });
-    };
-
-    addJoins(spec?.innerJoin, "INNER");
-    addJoins(spec?.leftJoin, "LEFT");
-    addJoins(spec?.rightJoin, "RIGHT");
-
-    return result;
-  }, [spec]);
+  const [selectedTable, setSelectedTable] = useState(
+    safeTables.length > 0 ? safeTables[0] : null
+  );
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
 
   const handleTableClick = (table) => {
     setSelectedTable(table);
     setIsDialogOpen(true);
   };
 
-  const getJoinTypeColorClass = (type) => {
+  // Sidebar badge style
+  const getJoinTypeClass = (type) => {
     switch (type) {
       case "INNER":
-        return "er-badge-inner";
+        return "er-badge-outline er-badge-inner";
       case "LEFT":
-        return "er-badge-left";
+        return "er-badge-outline er-badge-left";
       case "RIGHT":
-        return "er-badge-right";
+        return "er-badge-outline er-badge-right";
       default:
-        return "er-badge-default";
+        return "er-badge-outline er-badge-default";
     }
   };
 
-  const renderConnections = () => {
-    return joins.map((join, index) => {
-      const fromTable = tables.find((t) => t.name === join.from);
-      const toTable = tables.find((t) => t.name === join.to);
-      if (!fromTable || !toTable) return null;
-
-      const startX = fromTable.position.x + cardWidth;
-      const startY = fromTable.position.y + cardHeight / 2;
-      const endX = toTable.position.x;
-      const endY = toTable.position.y + cardHeight / 2;
-      const midX = (startX + endX) / 2;
-
-      return (
-        <g key={index}>
-          <path
-            d={`M ${startX} ${startY} Q ${midX} ${startY}, ${midX} ${
-              (startY + endY) / 2
-            } T ${endX} ${endY}`}
-            stroke="#3b82f6"
-            strokeWidth="2"
-            fill="none"
-          />
-          <circle cx={endX} cy={endY} r="4" fill="#3b82f6" />
-          {join.condition && (
-            <text
-              x={midX}
-              y={(startY + endY) / 2 - 8}
-              textAnchor="middle"
-              fontSize="10"
-              fill="#2563eb"
-            >
-              {join.condition}
-            </text>
-          )}
-        </g>
-      );
-    });
+  // Line colors per join type
+  const getJoinStrokeColor = (type) => {
+    switch (type) {
+      case "INNER":
+        return "#3b82f6"; // blue
+      case "LEFT":
+        return "#16a34a"; // green
+      case "RIGHT":
+        return "#f97316"; // orange
+      default:
+        return "#64748b"; // gray
+    }
   };
 
+
+  const getJoinBubbleStyle = (type) => {
+    switch (type) {
+      case "INNER":
+        return {
+          fill: "#dbeafe",
+          stroke: "#93c5fd",
+          text: "#1d4ed8",
+        };
+      case "LEFT":
+        return {
+          fill: "#dcfce7",
+          stroke: "#86efac",
+          text: "#15803d",
+        };
+      case "RIGHT":
+        return {
+          fill: "#ffedd5",
+          stroke: "#fed7aa",
+          text: "#c2410c",
+        };
+      default:
+        return {
+          fill: "#e5e7eb",
+          stroke: "#d1d5db",
+          text: "#4b5563",
+        };
+    }
+  };
+
+
+  const renderConnections = () => {
+  if (!safeJoins.length || !safeTables.length) return null;
+
+  // Lane index per pair (Job1->Job2 etc.) so multiple joins don't overlap
+  const laneMap = {};
+
+  return safeJoins.map((join, index) => {
+    const fromTable = safeTables.find((t) => t.name === join.from);
+    const toTable = safeTables.find((t) => t.name === join.to);
+    if (!fromTable || !toTable) return null;
+
+    // Base geometry: vertical stack, same X, different Y
+    const cardCenterX = fromTable.position.x + 100; // roughly card center
+    const startX = cardCenterX;
+    const startY = fromTable.position.y + 30;
+    const endX = cardCenterX;
+    const endY = toTable.position.y + 30;
+
+    // Lane index for this pair (so multiple joins fan out)
+    const laneKey = `${join.from}::${join.to}`;
+    const laneIndex = laneMap[laneKey] || 0;
+    laneMap[laneKey] = laneIndex + 1;
+
+    // Alternate left/right: -1, +1, -2, +2, ...
+    const dir = laneIndex % 2 === 0 ? -1 : 1;
+    const laneStep = Math.ceil((laneIndex + 1) / 2); // 1,1,2,2,3,3...
+    const horizontalOffset = dir * laneStep * 150;    // 60px per lane
+
+    // Midpoint of the curve, pushed left/right
+    const baseMidY = (startY + endY) / 2;
+    const midX = cardCenterX + horizontalOffset;
+    const midY = baseMidY;
+
+    const stroke = getJoinStrokeColor(join.type);
+    const bubble = getJoinBubbleStyle(join.type);
+
+    return (
+      <g key={index}>
+        {/* main curved line */}
+        <path
+          d={`M ${startX} ${startY} Q ${midX} ${startY}, ${midX} ${midY} T ${endX} ${endY}`}
+          stroke={stroke}
+          strokeWidth="2"
+          fill="none"
+        />
+
+        {/* small dot at destination */}
+        <circle cx={endX} cy={endY} r="4" fill={stroke} />
+
+        {/* join-type bubble above the line */}
+        <g>
+          <rect
+            x={midX - 22}
+            y={midY - 22}
+            width={44}
+            height={16}
+            rx={8}
+            ry={8}
+            fill={bubble.fill}
+            stroke={bubble.stroke}
+          />
+          <text
+            x={midX}
+            y={midY - 10}
+            textAnchor="middle"
+            style={{
+              fontSize: "10px",
+              fill: bubble.text,
+              fontWeight: 600,
+            }}
+          >
+            {join.type || "JOIN"}
+          </text>
+        </g>
+
+        {/* join condition text a little below the bubble */}
+        {join.condition && (
+          <text
+            x={midX}
+            y={midY + 6}
+            textAnchor="middle"
+            style={{ fontSize: "11px", fill: stroke }}
+          >
+            {join.condition}
+          </text>
+        )}
+      </g>
+    );
+  });
+};
+
+  const selectedColumns = Array.isArray(selectedTable?.columns)
+    ? selectedTable.columns
+    : [];
+
   return (
-    <div className="er-layout">
-      {/* LEFT: main column */}
-      <div className="er-main">
-        {/* Header */}
-        <header className="er-header">
-          <div className="er-header-inner">
-            <button className="er-btn-ghost" onClick={onBack}>
-              <ArrowLeft className="er-icon" />
-              <span>Back to job graph</span>
-            </button>
-            <div className="er-header-title">
-              <Database className="er-icon" />
-              <span className="er-header-label">ER view for:</span>
-              <span className="er-header-job">{fileName}</span>
+    <>
+      {/* === MAIN LAYOUT === */}
+      <div className="er-layout">
+        {/* LEFT: main column */}
+        <div className="er-main">
+          {/* Header */}
+          <header className="er-header">
+            <div className="er-header-inner">
+              <button className="er-btn-ghost" onClick={onBack}>
+                <ArrowLeft className="er-icon-xs" />
+                <span>Back to job graph</span>
+              </button>
+              <div className="er-header-title">
+                <Database className="er-icon-xs-muted" />
+                <span className="er-header-label">ER view for:</span>
+                <span className="er-header-job">{fileName}</span>
+              </div>
             </div>
-          </div>
-        </header>
+          </header>
 
-        {/* Canvas Area */}
-        <div className="er-canvas-wrapper">
-          <div className="er-canvas-card">
-            <svg className="er-canvas-grid">
-              <defs>
-                <pattern
-                  id="er-grid"
-                  width="20"
-                  height="20"
-                  patternUnits="userSpaceOnUse"
-                >
-                  <circle cx="1" cy="1" r="1" fill="#e2e8f0" />
-                </pattern>
-              </defs>
-              <rect width="100%" height="100%" fill="url(#er-grid)" />
-              {renderConnections()}
-            </svg>
-
-            {/* Table Nodes */}
-            {tables.map((table) => (
-              <div
-                key={table.id}
-                className="er-table-card"
-                style={{
-                  left: `${table.position.x}px`,
-                  top: `${table.position.y}px`,
-                  minWidth: `${cardWidth}px`,
-                }}
-                onClick={() => handleTableClick(table)}
-              >
-                <div className="er-table-card-header">
-                  <div className="er-table-card-title">
-                    <Database className="er-icon-sm" />
-                    <span>{table.name}</span>
-                  </div>
-                  <span className="er-badge-muted">
-                    {table.columns.length} cols
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* RIGHT: sidebar */}
-      <aside className="er-sidebar">
-        <div className="er-sidebar-scroll">
-          <div className="er-sidebar-section">
-            {/* Tables Section */}
-            <section>
-              <div className="er-section-title-row">
-                <Database className="er-icon-xs" />
-                <h3 className="er-section-title">Tables</h3>
-              </div>
-              <div className="er-table-list">
-                {tables.map((table) => (
-                  <div
-                    key={table.id}
-                    className="er-table-list-item"
-                    onClick={() => handleTableClick(table)}
+          {/* Canvas */}
+          <div className="er-canvas-wrapper">
+            <div className="er-canvas-card">
+              <svg className="er-canvas-grid">
+                <defs>
+                  <pattern
+                    id="er-grid"
+                    width="20"
+                    height="20"
+                    patternUnits="userSpaceOnUse"
                   >
-                    <span className="er-table-list-name">{table.name}</span>
+                    <circle cx="1" cy="1" r="1" fill="#e2e8f0" />
+                  </pattern>
+                </defs>
+                <rect width="100%" height="100%" fill="url(#er-grid)" />
+                {renderConnections()}
+              </svg>
+
+              {/* Table nodes */}
+              {safeTables.map((table) => (
+                <div
+                  key={table.id}
+                  className="er-table-card"
+                  style={{
+                    left: `${table.position.x}px`,
+                    top: `${table.position.y}px`,
+                    minWidth: "240px",
+                  }}
+                  onClick={() => handleTableClick(table)}
+                >
+                  <div className="er-table-card-header">
+                    <div className="er-table-card-title">
+                      <Database className="er-icon-sm" />
+                      <span>{table.name}</span>
+                    </div>
                     <span className="er-badge-muted">
-                      {table.columns.length}
+                      {(table.columns && table.columns.length) || 0} cols
                     </span>
                   </div>
-                ))}
-              </div>
-            </section>
-
-            <div className="er-separator" />
-
-            {/* Joins Section */}
-            <section>
-              <div className="er-section-title-row">
-                <Link2 className="er-icon-xs" />
-                <h3 className="er-section-title">Joins</h3>
-              </div>
-              <div className="er-join-list">
-                {joins.length === 0 && (
-                  <div className="er-empty-text">No joins detected</div>
-                )}
-                {joins.map((join, index) => (
-                  <div key={index} className="er-join-card">
-                    <div className="er-join-card-header">
-                      <div className="er-join-main">
-                        <span className="er-join-table">{join.from}</span>
-                        <span className="er-join-eq">=</span>
-                        <span className="er-join-table">{join.to}</span>
-                      </div>
-                      <span
-                        className={`er-badge-outline ${getJoinTypeColorClass(
-                          join.type
-                        )}`}
-                      >
-                        {join.type}
-                      </span>
-                    </div>
-                    <div className="er-join-fields">
-                      {join.fields.map((field, fieldIndex) => (
-                        <div key={fieldIndex} className="er-join-field-row">
-                          <span className="er-join-dot" />
-                          <span className="er-join-field">{field.from}</span>
-                          <span className="er-join-eq">=</span>
-                          <span className="er-join-field">{field.to}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
-      </aside>
 
-      {/* Table Details Dialog */}
+        {/* RIGHT: sidebar */}
+        <aside className="er-sidebar">
+          <div className="er-sidebar-scroll">
+            <div className="er-sidebar-section">
+              {/* Tables list */}
+              <section>
+                <div className="er-section-title-row">
+                  <Database className="er-icon-xs" />
+                  <h3 className="er-section-title">Tables</h3>
+                </div>
+                <div className="er-table-list">
+                  {safeTables.map((table) => (
+                    <button
+                      key={table.id}
+                      className="er-table-list-item"
+                      onClick={() => handleTableClick(table)}
+                    >
+                      <span className="er-table-list-name">{table.name}</span>
+                      <span className="er-badge-muted">
+                        {(table.columns && table.columns.length) || 0}
+                      </span>
+                    </button>
+                  ))}
+                  {safeTables.length === 0 && (
+                    <div className="er-empty-text">
+                      No tables were detected for this job.
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              <div className="er-separator" />
+
+              {/* Joins list */}
+              <section>
+                <div className="er-section-title-row">
+                  <Link2 className="er-icon-xs" />
+                  <h3 className="er-section-title">Joins</h3>
+                </div>
+                <div className="er-join-list">
+                  {safeJoins.length === 0 && (
+                    <div className="er-empty-text">
+                      No join information found for this job.
+                    </div>
+                  )}
+                  {safeJoins.map((join, idx) => (
+                    <div key={idx} className="er-join-card">
+                      <div className="er-join-card-header">
+                        <div className="er-join-main">
+                          <span className="er-join-table">{join.from}</span>
+                          <span className="er-join-eq">↔</span>
+                          <span className="er-join-table">{join.to}</span>
+                        </div>
+                        <span className={getJoinTypeClass(join.type)}>
+                          {join.type || "JOIN"}
+                        </span>
+                      </div>
+                      <div className="er-join-fields">
+                        {(join.fields || []).map((field, fIdx) => (
+                          <div key={fIdx} className="er-join-field-row">
+                            <span className="er-join-dot" />
+                            <span className="er-join-field">
+                              {field.from} = {field.to}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      {/* Columns Dialog (NO datatype column, only name + constraints) */}
       {isDialogOpen && selectedTable && (
         <div
           className="er-dialog-backdrop"
           onClick={() => setIsDialogOpen(false)}
         >
-          <div
-            className="er-dialog"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className="er-dialog" onClick={(e) => e.stopPropagation()}>
             <div className="er-dialog-header">
               <div className="er-dialog-title-row">
-                <Database className="er-icon" />
-                <span className="er-dialog-title">{selectedTable.name}</span>
+                <Database className="er-icon-xs" />
+                <h2 className="er-dialog-title">{selectedTable.name}</h2>
               </div>
-              <div className="er-dialog-sub">
-                Table columns and their data types
-              </div>
+              <p className="er-dialog-sub">
+                Table columns and their constraints
+              </p>
               <button
                 className="er-dialog-close"
                 onClick={() => setIsDialogOpen(false)}
@@ -314,55 +414,39 @@ export default function ErDiagramView({ spec, onBack }) {
                 ×
               </button>
             </div>
+
             <div className="er-dialog-body">
               <div className="er-dialog-table-wrapper">
                 <table className="er-dialog-table">
                   <thead>
                     <tr>
                       <th>Column Name</th>
-                      <th>Data Type</th>
-                      <th>Constraints</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {selectedTable.columns.map((column, idx) => (
-                      <tr key={idx}>
-                        <td>
-                          <div className="er-col-name-cell">
-                            <Type className="er-icon-xs-muted" />
-                            <span>{column.name}</span>
-                          </div>
-                        </td>
-                        <td>
-                          <span className="er-badge-outline">
-                            {column.type}
-                          </span>
-                        </td>
-                        <td>
-                          <div className="er-constraints">
-                            {column.isPrimaryKey && (
-                              <span className="er-badge-pk">
-                                <Key className="er-icon-xxs" />
-                                PK
-                              </span>
-                            )}
-                            {column.isForeignKey && (
-                              <span className="er-badge-fk">
-                                <Link2 className="er-icon-xxs" />
-                                FK
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {selectedTable.columns.length === 0 && (
+                    {selectedColumns.length === 0 && (
                       <tr>
-                        <td colSpan={3} className="er-empty-text">
-                          No columns defined for this table
+                        <td>
+                          <span className="er-empty-text">
+                            No column metadata provided for this table.
+                          </span>
                         </td>
                       </tr>
                     )}
+                    {selectedColumns.map((column, idx) => {
+                      const colName =
+                        typeof column === "string" ? column : column.name || "";
+
+                      return (
+                        <tr key={idx}>
+                          <td>
+                            <div className="er-col-name-cell">
+                              <span>{colName}</span>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -370,6 +454,6 @@ export default function ErDiagramView({ spec, onBack }) {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }

@@ -1,60 +1,99 @@
 import React, { useRef, useState } from "react";
 
-// Expected shape of spec (for reference only):
-// {
-//   "JobA/orders.sql": { depends_on: [...], impact: 12 },
-//   "JobB/products.sql": { depends_on: [...], impact: 67 },
-//   ...
-// }
-
+// Starter expects: onSpecReady(workflowJson)
 export default function Starter({ onSpecReady }) {
   const [dragOver, setDragOver] = useState(false);
-  const [progress, setProgress] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState(0);
   const fileRef = useRef(null);
 
-  const handlePick = () => fileRef.current?.click();
+  // 👉 change this to your FastAPI URL if different
+  const API_URL = "http://127.0.0.1:8000/process-zip";
 
-  const simulatePythonProcess = async (file) => {
-    setBusy(true);
-    setProgress(0);
-    for (let i = 0; i <= 20; i++) {
-      await new Promise((r) => setTimeout(r, 80));
-      setProgress(Math.round((i / 20) * 100));
-    }
-
-    // Demo JobSpec for now
-    const spec = {
-      "JobA/orders.sql": { depends_on: [], impact: 12 },
-      "JobA/customers.sql": { depends_on: [], impact: 48 },
-      "JobB/products.sql": { depends_on: [], impact: 67 },
-      "JobA/orders_agg.sql": {
-        depends_on: [
-          "JobA/orders.sql",
-          "JobA/customers.sql",
-          "JobB/products.sql",
-        ],
-        impact: 83,
-      },
-    };
-
-    onSpecReady(spec);
-    setBusy(false);
+  const handlePick = () => {
+    if (fileRef.current) fileRef.current.click();
   };
+
+  // small fake-progress helper to animate bar while fetch runs
+  function startFakeProgress() {
+    setProgress(0);
+    let current = 0;
+    const id = setInterval(() => {
+      current += 5;
+      // stop around 85%, the rest will be set to 100 when response arrives
+      if (current >= 85) {
+        clearInterval(id);
+      } else {
+        setProgress(current);
+      }
+    }, 120);
+    return () => clearInterval(id);
+  }
+
+  async function uploadZipToBackend(file) {
+    try {
+      setBusy(true);
+      const stopFake = startFakeProgress();
+
+      const formData = new FormData();
+      // backend FastAPI will read this as `file: UploadFile`
+      formData.append("file", file);
+
+      const res = await fetch(API_URL, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        stopFake();
+        setProgress(0);
+        throw new Error(`Backend error: ${res.status} ${res.statusText}`);
+      }
+
+      const json = await res.json();
+      stopFake();
+      setProgress(100);
+
+      // ✅ hand the workflow JSON to JobGraphCanvas
+      onSpecReady(json);
+    } catch (err) {
+      console.error("Upload / processing failed", err);
+      alert("Processing failed. Check backend logs.");
+      setBusy(false);
+      setProgress(0);
+    }
+  }
+
+  function handleFile(file) {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".zip")) {
+      alert("Please choose a .zip file containing your SQL folders");
+      return;
+    }
+    uploadZipToBackend(file);
+  }
 
   const onDrop = (e) => {
     e.preventDefault();
     e.stopPropagation();
     setDragOver(false);
     const f = e.dataTransfer.files?.[0];
-    if (f && f.name.toLowerCase().endsWith(".zip")) simulatePythonProcess(f);
-    else alert("Please drop a .zip file containing your SQL folders");
+    handleFile(f);
   };
 
-  const onFile = (e) => {
+  const onDragOver = (e) => {
+    e.preventDefault();
+    setDragOver(true);
+  };
+
+  const onDragLeave = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+  };
+
+  const onFileChange = (e) => {
     const f = e.target.files?.[0];
-    if (f && f.name.toLowerCase().endsWith(".zip")) simulatePythonProcess(f);
-    else alert("Please choose a .zip file containing your SQL folders");
+    handleFile(f);
   };
 
   return (
@@ -64,39 +103,42 @@ export default function Starter({ onSpecReady }) {
         type="file"
         accept=".zip"
         className="hidden-input"
-        onChange={onFile}
+        onChange={onFileChange}
       />
+
       <div
         className={
           "starter-card" +
           (dragOver ? " starter-card--dragover" : "")
         }
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragOver(true);
-        }}
-        onDragLeave={() => setDragOver(false)}
         onDrop={onDrop}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
       >
         <h1 className="starter-title">Upload your SQL ZIP</h1>
         <p className="starter-subtitle">
-          Drop a .zip with folders of .sql files. We’ll extract dependencies and
-          build the job graph.
+          Drop a .zip with folders of .sql files. The backend will extract
+          dependencies and build the workflow + job graph JSON.
         </p>
-        <button className="btn" onClick={handlePick}>
-          Choose .zip
+
+        <button className="btn" onClick={handlePick} disabled={busy}>
+          {busy ? "Processing…" : "Choose .zip"}
         </button>
 
         {busy && (
           <div className="starter-progress">
-            <div className="starter-progress-label">Processing…</div>
+            <div className="starter-progress-label">
+              Processing on backend…
+            </div>
             <div className="progress-track">
               <div
                 className="progress-fill"
                 style={{ width: `${progress}%` }}
               />
             </div>
-            <div className="starter-progress-percent">{progress}%</div>
+            <div className="starter-progress-percent">
+              {progress}%
+            </div>
           </div>
         )}
       </div>
