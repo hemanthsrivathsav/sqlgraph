@@ -23,8 +23,9 @@ npm run dev
 
 
 
-# backend running 
+# backend dependancies to download 
 pip install fastapi uvicorn
+# backend running command 
 cd <backend folder>
 python -m uvicorn backend.main:app --reload --port 8000
 

@@ -1,7 +1,8 @@
 import React, { useMemo, useRef, useState, useEffect } from "react";
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 import Starter from "./Starter";
-import type { JobSpec } from "../types";
+import ErDiagramView from "./ErDiagramView";
+import type { JobSpec, JobErSpec } from "../types";
 
 const NODE_W = 220;
 const NODE_H = 96;
@@ -20,8 +21,6 @@ export type JobEdge = {
   to: string;
 };
 
-
-
 // ---------- Geometry / helpers ----------
 function pathBetween(a: { x: number; y: number }, b: { x: number; y: number }) {
   const dx = (b.x - a.x) * 0.5;
@@ -38,21 +37,30 @@ function anchorFor(from: JobNode, to: JobNode) {
   const dx = to.x - cx;
   const dy = to.y - cy;
   if (dx === 0 && dy === 0) return { x: cx, y: cy };
+  
   const rx = NODE_W / 2;
   const ry = NODE_H / 2;
-  const tX = dx === 0 ? Number.POSITIVE_INFINITY : Math.abs(rx / dx);
-  const tY = dy === 0 ? Number.POSITIVE_INFINITY : Math.abs(ry / dy);
-  const eps = 0.5;
-  if (tX <= tY) {
-    const x = cx + Math.sign(dx) * rx + Math.sign(dx) * eps;
-    const y = cy + dy * (rx / Math.abs(dx));
-    return { x, y };
-  } else {
-    const x = cx + dx * (ry / Math.abs(dy));
-    const y = cy + Math.sign(dy) * ry + Math.sign(dy) * eps;
-    return { x, y };
-  }
+  
+  // Calculate which edge of the rectangle the line intersects
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist === 0) return { x: cx, y: cy };
+  
+  const unitDx = dx / dist;
+  const unitDy = dy / dist;
+  
+  // Find intersection with rectangle edge
+  let t = Math.min(
+    Math.abs(rx / (Math.abs(unitDx) + 0.0001)),
+    Math.abs(ry / (Math.abs(unitDy) + 0.0001))
+  );
+  
+  const anchorX = cx + unitDx * t;
+  const anchorY = cy + unitDy * t;
+  
+  return { x: anchorX, y: anchorY };
 }
+
+
 
 function impactColors(impact: number | undefined) {
   const v = Math.max(0, Math.min(100, impact ?? 0));
@@ -77,17 +85,25 @@ function getCenter(bounds: { minX: number; minY: number; maxX: number; maxY: num
 }
 
 // ---------- Node Card ----------
-function NodeCard({ node, onPointerDown }: { node: JobNode; onPointerDown?: (e: React.PointerEvent) => void }) {
+function NodeCard({
+  node,
+  onClick,
+}: {
+  node: JobNode;
+  onClick?: () => void;
+}) {
   const { stroke, fill } = impactColors(node.impact);
   return (
     <div
-      onPointerDown={onPointerDown}
-      className="absolute select-none rounded-2xl shadow-md border border-zinc-300 bg-white/90 backdrop-blur p-3 w-[220px] h-[96px] box-border relative"
+      onClick={onClick}
+      className="absolute select-none rounded-2xl shadow-md border border-zinc-300 bg-white/90 backdrop-blur p-3 w-[220px] h-[96px] box-border relative cursor-pointer hover:shadow-lg transition-shadow"
       style={{ left: node.x - NODE_W / 2, top: node.y - NODE_H / 2 }}
     >
       <div className="text-xs text-zinc-500">SQL File</div>
       <div className="font-semibold text-zinc-800 truncate">{node.label}</div>
-      <div className="mt-1 text-[11px] text-zinc-600">Click to focus • Drag canvas anywhere to pan</div>
+      <div className="mt-1 text-[11px] text-zinc-600">
+        Click to open ER view • Drag canvas to pan
+      </div>
       <span
         aria-label={`impact: ${node.impact ?? 0}`}
         className="absolute top-1 right-1 rounded-full px-2 py-0.5 text-[10px] font-medium border shadow-sm backdrop-blur-sm"
@@ -121,7 +137,25 @@ function GridBackground({ width, height }: { width: number; height: number }) {
 }
 
 // ---------- Toolbar ----------
-function Toolbar({ apiRef, onFit, onReset, onLoadJson }: { apiRef: React.MutableRefObject<any>; onFit?: () => void; onReset?: () => void; onLoadJson?: (obj: JobSpec) => void }) {
+function Toolbar({
+  apiRef,
+  onFit,
+  onReset,
+  onLoadJson,
+  selectedJobId,
+  setSelectedJobId,
+  setMode,
+  jobErMap,
+}: {
+  apiRef: React.MutableRefObject<any>;
+  onFit?: () => void;
+  onReset?: () => void;
+  onLoadJson?: (obj: JobSpec) => void;
+  selectedJobId: string | null;
+  setSelectedJobId: (id: string | null) => void;
+  setMode: (mode: "start" | "graph" | "details") => void;
+  jobErMap: Record<string, JobErSpec>;
+}) {
   const fileRef = React.useRef<HTMLInputElement | null>(null);
   const onPick = () => fileRef.current?.click();
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -136,6 +170,7 @@ function Toolbar({ apiRef, onFit, onReset, onLoadJson }: { apiRef: React.Mutable
       alert("Invalid JSON format. Expected { jobName: { depends_on: string[], impact?: number }, ... }");
     }
   };
+
   return (
     <div className="absolute z-20 top-3 left-3 flex items-center gap-2 bg-white/90 backdrop-blur rounded-xl shadow p-2 border border-zinc-200">
       <input ref={fileRef} type="file" accept="application/json" className="hidden" onChange={onFile} />
@@ -150,6 +185,7 @@ function Toolbar({ apiRef, onFit, onReset, onLoadJson }: { apiRef: React.Mutable
 
 // ---------- MiniMap ----------
 function MiniMap({ width, height, nodes }: { width: number; height: number; nodes: JobNode[] }) {
+  if (nodes.length === 0) return null;
   const W = 200, H = 140;
   const minX = Math.min(...nodes.map(n => n.x));
   const minY = Math.min(...nodes.map(n => n.y));
@@ -216,7 +252,7 @@ function buildGraphFromSpec(spec: JobSpec) {
   const edgesOut: JobEdge[] = [];
   const startX = 400;
   const startY = 300;
-  for (const [lv, jobs] of Array.from(byLevel.entries()).sort((a,b)=>a[0]-b[0])) {
+  for (const [lv, jobs] of Array.from(byLevel.entries()).sort((a, b) => a[0] - b[0])) {
     jobs.forEach((job, idx) => {
       const x = startX + lv * LAYER_GAP_X;
       const y = startY + idx * LAYER_GAP_Y;
@@ -237,7 +273,6 @@ function buildGraphFromSpec(spec: JobSpec) {
   return { nodesOut, edgesOut };
 }
 
-
 // ---------- Main ----------
 export default function JobGraphCanvas() {
   const CANVAS_W = 4000;
@@ -245,13 +280,32 @@ export default function JobGraphCanvas() {
 
   const [nodes, setNodes] = useState<JobNode[]>([]);
   const [edges, setEdges] = useState<JobEdge[]>([]);
-  const [mode, setMode] = useState<"start"|"graph">("start");
+  const [mode, setMode] = useState<"start" | "graph" | "details">("start");
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+
+  const [jobErMap, setJobErMap] = useState<Record<string, JobErSpec>>({
+    "JobA/orders_agg.sql": {
+      job_name: "JobA/orders_agg.sql",
+      tables: ["Table1", "Table2", "Table4"],
+      innerJoin: [
+        {
+          tablesUsed: ["Table1", "Table2"],
+          attr_list: ["t1.customer_id = t2.customer_id"],
+        },
+        {
+          tablesUsed: ["Table2", "Table4"],
+          attr_list: ["t2.product_id = t4.product_id"],
+        },
+      ],
+      leftJoin: null,
+      rightJoin: null,
+    },
+  });
 
   const nodeById = useMemo(() => Object.fromEntries(nodes.map(n => [n.id, n])), [nodes]);
 
   const apiRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [containerH, setContainerH] = useState(720);
 
   const fitToCanvas = () => {
     const wrapper = containerRef.current;
@@ -281,11 +335,8 @@ export default function JobGraphCanvas() {
 
   useEffect(() => {
     const onResize = () => {
-      const rect = containerRef.current?.getBoundingClientRect();
-      setContainerH(rect ? rect.height : window.innerHeight - 120);
       if (mode === "graph") fitToCanvas();
     };
-    onResize();
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, [mode]);
@@ -295,11 +346,31 @@ export default function JobGraphCanvas() {
     setNodes(nodesOut);
     setEdges(edgesOut);
     setMode("graph");
-    setTimeout(()=>centerOnNodes(1), 0);
+    setTimeout(() => centerOnNodes(1), 0);
   }
 
   if (mode === "start") {
     return <Starter onSpecReady={handleSpec} />;
+  }
+
+  if (mode === "details" && selectedJobId) {
+    const erSpec = jobErMap[selectedJobId];
+    if (!erSpec) {
+      return (
+        <div className="w-full h-screen flex flex-col items-center justify-center bg-zinc-50">
+          <div className="mb-4 text-sm text-zinc-600">
+            No ER data available for <span className="font-mono">{selectedJobId}</span>
+          </div>
+          <button
+            onClick={() => setMode("graph")}
+            className="px-3 py-1.5 rounded-lg border border-zinc-300 text-sm hover:bg-zinc-100"
+          >
+            ← Back to job graph
+          </button>
+        </div>
+      );
+    }
+    return <ErDiagramView spec={erSpec} onBack={() => setMode("graph")} />;
   }
 
   return (
@@ -320,8 +391,18 @@ export default function JobGraphCanvas() {
           apiRef={apiRef}
           onFit={fitToCanvas}
           onReset={() => centerOnNodes(1)}
-          onLoadJson={(obj)=>{ const { nodesOut, edgesOut } = buildGraphFromSpec(obj); setNodes(nodesOut); setEdges(edgesOut); setTimeout(()=>centerOnNodes(1), 0); }}
+          onLoadJson={(obj) => {
+            const { nodesOut, edgesOut } = buildGraphFromSpec(obj);
+            setNodes(nodesOut);
+            setEdges(edgesOut);
+            setTimeout(() => centerOnNodes(1), 0);
+          }}
+          selectedJobId={selectedJobId}
+          setSelectedJobId={setSelectedJobId}
+          setMode={setMode}
+          jobErMap={jobErMap}
         />
+
         <TransformComponent>
           <div className="relative" style={{ width: CANVAS_W, height: CANVAS_H }}>
             <GridBackground width={CANVAS_W} height={CANVAS_H} />
@@ -331,6 +412,7 @@ export default function JobGraphCanvas() {
                   <path d="M 0 0 L 10 5 L 0 10 z" fill="#1F2937" />
                 </marker>
               </defs>
+              {/* EDGES - Move the mapping here */}
               {edges.map(e => {
                 const a = nodeById[e.from];
                 const b = nodeById[e.to];
@@ -347,7 +429,14 @@ export default function JobGraphCanvas() {
               })}
             </svg>
             {nodes.map(n => (
-              <NodeCard key={n.id} node={n} />
+              <NodeCard
+                key={n.id}
+                node={n}
+                onClick={() => {
+                  setSelectedJobId(n.id);
+                  setMode("details");
+                }}
+              />
             ))}
           </div>
         </TransformComponent>
